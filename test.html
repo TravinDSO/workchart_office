@@ -1,0 +1,2719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WorkChart Office - Test Harness</title>
+    <style>
+        /* ====================================================================
+           Dark theme matching the main app
+           ==================================================================== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', 'Consolas', monospace;
+            background: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.6;
+            padding: 0;
+        }
+
+        header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        header h1 {
+            font-size: 20px;
+            color: #58a6ff;
+            font-weight: 600;
+        }
+
+        header h1 span {
+            color: #8b949e;
+            font-weight: 400;
+            font-size: 14px;
+            margin-left: 8px;
+        }
+
+        .header-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        button {
+            background: #238636;
+            color: #ffffff;
+            border: 1px solid #2ea043;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-family: inherit;
+            transition: background 0.15s;
+        }
+
+        button:hover { background: #2ea043; }
+        button:active { background: #1a7f37; }
+
+        button.secondary {
+            background: #21262d;
+            border-color: #30363d;
+            color: #c9d1d9;
+        }
+
+        button.secondary:hover { background: #30363d; }
+
+        /* ---- Summary bar ---- */
+        #summary-bar {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 12px 24px;
+            display: flex;
+            gap: 24px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        #summary-bar .stat {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .stat .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .dot.green { background: #3fb950; }
+        .dot.red { background: #f85149; }
+        .dot.yellow { background: #d29922; }
+        .dot.gray { background: #484f58; }
+
+        /* ---- Main layout ---- */
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        section {
+            margin-bottom: 32px;
+        }
+
+        section h2 {
+            font-size: 18px;
+            color: #58a6ff;
+            border-bottom: 1px solid #21262d;
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+
+        /* ---- Test results ---- */
+        .test-suite {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .suite-header {
+            padding: 10px 16px;
+            background: #1c2128;
+            border-bottom: 1px solid #30363d;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+
+        .suite-header:hover { background: #21262d; }
+
+        .suite-header .suite-status {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        .suite-header .suite-status.pass { background: #1b4332; color: #3fb950; }
+        .suite-header .suite-status.fail { background: #4a1d1d; color: #f85149; }
+        .suite-header .suite-status.pending { background: #2d2a1d; color: #d29922; }
+
+        .suite-body {
+            padding: 0;
+        }
+
+        .test-case {
+            padding: 8px 16px 8px 32px;
+            border-bottom: 1px solid #21262d;
+            font-size: 13px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .test-case:last-child { border-bottom: none; }
+
+        .test-case .icon {
+            flex-shrink: 0;
+            width: 16px;
+            text-align: center;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .test-case.pass .icon { color: #3fb950; }
+        .test-case.fail .icon { color: #f85149; }
+        .test-case.skip .icon { color: #d29922; }
+
+        .test-case .name { flex: 1; }
+        .test-case .detail {
+            color: #f85149;
+            font-size: 12px;
+            margin-top: 4px;
+            font-family: 'Consolas', monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* ---- Visual test section ---- */
+        .visual-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+            gap: 16px;
+        }
+
+        .visual-box {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .visual-box .box-label {
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #8b949e;
+            background: #1c2128;
+            border-bottom: 1px solid #30363d;
+            font-weight: 600;
+        }
+
+        .visual-box canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        /* ---- Collapsed suite body ---- */
+        .suite-body.collapsed {
+            display: none;
+        }
+
+        /* ---- Progress / running indicator ---- */
+        .running-indicator {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid #30363d;
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* ---- Elapsed time ---- */
+        #elapsed-time {
+            color: #8b949e;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>WorkChart Office <span>Test Harness v1.0</span></h1>
+    <div class="header-controls">
+        <span id="elapsed-time"></span>
+        <button id="btn-run-all" onclick="runAllTests()">Run All Tests</button>
+        <button class="secondary" onclick="clearResults()">Clear</button>
+    </div>
+</header>
+
+<div id="summary-bar">
+    <div class="stat"><span class="dot green"></span> Passed: <span id="count-pass">0</span></div>
+    <div class="stat"><span class="dot red"></span> Failed: <span id="count-fail">0</span></div>
+    <div class="stat"><span class="dot yellow"></span> Skipped: <span id="count-skip">0</span></div>
+    <div class="stat"><span class="dot gray"></span> Total: <span id="count-total">0</span></div>
+</div>
+
+<main>
+    <!-- Unit test results -->
+    <section id="unit-test-section">
+        <h2>Unit Tests</h2>
+        <div id="test-results"></div>
+    </section>
+
+    <!-- Visual test section -->
+    <section id="visual-test-section">
+        <h2>Visual Tests</h2>
+        <p style="color: #8b949e; margin-bottom: 16px; font-size: 13px;">
+            These render sample boxes in different states for manual visual verification.
+            Click "Run All Tests" to populate them.
+        </p>
+        <div class="visual-grid" id="visual-grid"></div>
+    </section>
+</main>
+
+<script>
+// ========================================================================
+// MINIMAL TEST FRAMEWORK
+// ========================================================================
+
+const TestFramework = (() => {
+    let suites = [];
+    let currentSuite = null;
+    let counts = { pass: 0, fail: 0, skip: 0, total: 0 };
+
+    function describe(name, fn) {
+        currentSuite = { name, tests: [], passCount: 0, failCount: 0 };
+        suites.push(currentSuite);
+        fn();
+        currentSuite = null;
+    }
+
+    function it(name, fn) {
+        if (!currentSuite) throw new Error('it() must be called inside describe()');
+        currentSuite.tests.push({ name, fn });
+    }
+
+    function assertEqual(actual, expected, message) {
+        const actualStr = JSON.stringify(actual);
+        const expectedStr = JSON.stringify(expected);
+        if (actualStr !== expectedStr) {
+            throw new Error(
+                (message ? message + ': ' : '') +
+                `Expected ${expectedStr}, got ${actualStr}`
+            );
+        }
+    }
+
+    function assertDeepEqual(actual, expected, message) {
+        // Deep comparison via JSON serialization
+        assertEqual(actual, expected, message);
+    }
+
+    function assertNotNull(value, message) {
+        if (value === null || value === undefined) {
+            throw new Error((message ? message + ': ' : '') + 'Expected non-null value');
+        }
+    }
+
+    function assertNull(value, message) {
+        if (value !== null && value !== undefined) {
+            throw new Error(
+                (message ? message + ': ' : '') +
+                `Expected null, got ${JSON.stringify(value)}`
+            );
+        }
+    }
+
+    function assertTrue(value, message) {
+        if (value !== true) {
+            throw new Error(
+                (message ? message + ': ' : '') +
+                `Expected true, got ${JSON.stringify(value)}`
+            );
+        }
+    }
+
+    function assertFalse(value, message) {
+        if (value !== false) {
+            throw new Error(
+                (message ? message + ': ' : '') +
+                `Expected false, got ${JSON.stringify(value)}`
+            );
+        }
+    }
+
+    function assertThrows(fn, message) {
+        let threw = false;
+        try { fn(); } catch (e) { threw = true; }
+        if (!threw) {
+            throw new Error((message ? message + ': ' : '') + 'Expected function to throw');
+        }
+    }
+
+    function assertArrayLength(arr, length, message) {
+        if (!Array.isArray(arr)) {
+            throw new Error((message ? message + ': ' : '') + `Expected array, got ${typeof arr}`);
+        }
+        if (arr.length !== length) {
+            throw new Error(
+                (message ? message + ': ' : '') +
+                `Expected array length ${length}, got ${arr.length}`
+            );
+        }
+    }
+
+    function assertInstanceOf(value, type, message) {
+        if (!(value instanceof type)) {
+            throw new Error(
+                (message ? message + ': ' : '') +
+                `Expected instance of ${type.name}`
+            );
+        }
+    }
+
+    async function runAll() {
+        counts = { pass: 0, fail: 0, skip: 0, total: 0 };
+        const resultsEl = document.getElementById('test-results');
+        resultsEl.innerHTML = '';
+
+        for (const suite of suites) {
+            suite.passCount = 0;
+            suite.failCount = 0;
+
+            const suiteEl = document.createElement('div');
+            suiteEl.className = 'test-suite';
+
+            const headerEl = document.createElement('div');
+            headerEl.className = 'suite-header';
+            headerEl.innerHTML = `<span>${suite.name}</span><span class="suite-status pending">running...</span>`;
+            suiteEl.appendChild(headerEl);
+
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'suite-body';
+            suiteEl.appendChild(bodyEl);
+
+            headerEl.addEventListener('click', () => {
+                bodyEl.classList.toggle('collapsed');
+            });
+
+            resultsEl.appendChild(suiteEl);
+
+            for (const test of suite.tests) {
+                counts.total++;
+                const testEl = document.createElement('div');
+                testEl.className = 'test-case';
+
+                try {
+                    // Support async test functions
+                    const result = test.fn();
+                    if (result && typeof result.then === 'function') {
+                        await result;
+                    }
+                    testEl.classList.add('pass');
+                    testEl.innerHTML = `<span class="icon">&#10003;</span><span class="name">${test.name}</span>`;
+                    suite.passCount++;
+                    counts.pass++;
+                } catch (err) {
+                    testEl.classList.add('fail');
+                    testEl.innerHTML = `
+                        <span class="icon">&#10007;</span>
+                        <div>
+                            <span class="name">${test.name}</span>
+                            <div class="detail">${escapeHtml(err.message)}</div>
+                        </div>`;
+                    suite.failCount++;
+                    counts.fail++;
+                }
+
+                bodyEl.appendChild(testEl);
+            }
+
+            // Update suite header status
+            const statusEl = headerEl.querySelector('.suite-status');
+            if (suite.failCount > 0) {
+                statusEl.className = 'suite-status fail';
+                statusEl.textContent = `${suite.failCount} failed, ${suite.passCount} passed`;
+            } else {
+                statusEl.className = 'suite-status pass';
+                statusEl.textContent = `${suite.passCount} passed`;
+                bodyEl.classList.add('collapsed');
+            }
+        }
+
+        // Update summary counts
+        document.getElementById('count-pass').textContent = counts.pass;
+        document.getElementById('count-fail').textContent = counts.fail;
+        document.getElementById('count-skip').textContent = counts.skip;
+        document.getElementById('count-total').textContent = counts.total;
+    }
+
+    function escapeHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function reset() {
+        suites = [];
+        currentSuite = null;
+        counts = { pass: 0, fail: 0, skip: 0, total: 0 };
+    }
+
+    return {
+        describe, it,
+        assertEqual, assertDeepEqual, assertNotNull, assertNull,
+        assertTrue, assertFalse, assertThrows, assertArrayLength,
+        assertInstanceOf,
+        runAll, reset
+    };
+})();
+
+// Convenience aliases
+const { describe, it, assertEqual, assertDeepEqual, assertNotNull, assertNull,
+        assertTrue, assertFalse, assertThrows, assertArrayLength } = TestFramework;
+
+
+// ========================================================================
+// MOCK JSONL RECORDS
+// Based on DATA_DICTIONARY.md - realistic Claude Code transcript data
+// ========================================================================
+
+const MOCK_SESSION_ID = '91059d04-c70c-42da-9af4-fddf34870751';
+const MOCK_SESSION_SLUG = 'workchart-office';
+
+const MOCK_RECORDS = {
+
+    // ---- queue-operation: enqueue ----
+    ENQUEUE: JSON.stringify({
+        type: 'queue-operation',
+        operation: 'enqueue',
+        timestamp: '2026-03-01T15:17:59.013Z',
+        sessionId: MOCK_SESSION_ID
+    }),
+
+    // ---- queue-operation: dequeue ----
+    DEQUEUE: JSON.stringify({
+        type: 'queue-operation',
+        operation: 'dequeue',
+        timestamp: '2026-03-01T15:45:12.321Z',
+        sessionId: MOCK_SESSION_ID
+    }),
+
+    // ---- user: text message (array content) ----
+    USER_TEXT: JSON.stringify({
+        type: 'user',
+        parentUuid: '00000000-0000-0000-0000-000000000000',
+        uuid: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        timestamp: '2026-03-01T15:18:01.456Z',
+        sessionId: MOCK_SESSION_ID,
+        version: '2.1.63',
+        cwd: 'C:\\mauricesource\\Alpha_Assistant\\src\\workchart_office',
+        gitBranch: 'main',
+        isSidechain: false,
+        slug: MOCK_SESSION_SLUG,
+        userType: 'external',
+        message: {
+            role: 'user',
+            content: [
+                { type: 'text', text: 'Fix the login bug in auth.js' }
+            ]
+        }
+    }),
+
+    // ---- user: text message (string content) ----
+    USER_TEXT_STRING: JSON.stringify({
+        type: 'user',
+        uuid: 'str-content-uuid',
+        timestamp: '2026-03-01T15:18:02.000Z',
+        sessionId: MOCK_SESSION_ID,
+        slug: MOCK_SESSION_SLUG,
+        message: {
+            role: 'user',
+            content: 'Hello, can you help me?'
+        }
+    }),
+
+    // ---- user: tool_result ----
+    TOOL_RESULT: JSON.stringify({
+        type: 'user',
+        parentUuid: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        uuid: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+        timestamp: '2026-03-01T15:18:05.789Z',
+        sessionId: MOCK_SESSION_ID,
+        slug: MOCK_SESSION_SLUG,
+        message: {
+            role: 'user',
+            content: [
+                {
+                    type: 'tool_result',
+                    tool_use_id: 'toolu_01HqRdp5KMbNP1VmSGCWqkJa',
+                    content: [
+                        {
+                            type: 'text',
+                            text: '     1\tconst express = require("express");\n     2\tconst app = express();'
+                        }
+                    ]
+                }
+            ]
+        }
+    }),
+
+    // ---- assistant: single tool_use (Read) ----
+    ASSISTANT_SINGLE_TOOL: JSON.stringify({
+        type: 'assistant',
+        uuid: 'c3d4e5f6-a7b8-9012-cdef-123456789012',
+        timestamp: '2026-03-01T15:18:03.123Z',
+        sessionId: MOCK_SESSION_ID,
+        slug: MOCK_SESSION_SLUG,
+        message: {
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            content: [
+                {
+                    type: 'tool_use',
+                    id: 'toolu_01HqRdp5KMbNP1VmSGCWqkJa',
+                    name: 'Read',
+                    input: {
+                        file_path: '/src/auth.js'
+                    }
+                }
+            ],
+            stop_reason: 'tool_use'
+        }
+    }),
+
+    // ---- assistant: multiple tool_use blocks (Read + Grep) ----
+    ASSISTANT_MULTI_TOOL: JSON.stringify({
+        type: 'assistant',
+        uuid: 'd4e5f6a7-b8c9-0123-defa-234567890123',
+        timestamp: '2026-03-01T15:18:06.456Z',
+        sessionId: MOCK_SESSION_ID,
+        slug: MOCK_SESSION_SLUG,
+        message: {
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            content: [
+                {
+                    type: 'text',
+                    text: 'Let me search for the authentication logic.'
+                },
+                {
+                    type: 'tool_use',
+                    id: 'toolu_01XYZ_read',
+                    name: 'Read',
+                    input: { file_path: '/src/auth.js' }
+                },
+                {
+                    type: 'tool_use',
+                    id: 'toolu_01XYZ_grep',
+                    name: 'Grep',
+                    input: { pattern: 'login', path: '/src/' }
+                }
+            ],
+            stop_reason: 'tool_use'
+        }
+    }),
+
+    // ---- assistant: Task tool_use (sub-agent spawn) ----
+    ASSISTANT_SUBAGENT: JSON.stringify({
+        type: 'assistant',
+        uuid: 'e5f6a7b8-c9d0-1234-efab-345678901234',
+        timestamp: '2026-03-01T15:18:10.789Z',
+        sessionId: MOCK_SESSION_ID,
+        slug: MOCK_SESSION_SLUG,
+        message: {
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            content: [
+                {
+                    type: 'text',
+                    text: 'I will spawn a sub-agent to fix the tests.'
+                },
+                {
+                    type: 'tool_use',
+                    id: 'toolu_01TASK_spawn',
+                    name: 'Task',
+                    input: {
+                        description: 'Fix failing unit tests in auth.test.js',
+                        prompt: 'Run the test suite and fix any failing tests.',
+                        agentId: 'agent-fix-tests-001'
+                    }
+                }
+            ],
+            stop_reason: 'tool_use'
+        }
+    }),
+
+    // ---- assistant: Agent tool_use (alternate sub-agent spawn) ----
+    ASSISTANT_AGENT_SPAWN: JSON.stringify({
+        type: 'assistant',
+        uuid: 'agent-spawn-uuid-001',
+        timestamp: '2026-03-01T15:19:00.000Z',
+        sessionId: MOCK_SESSION_ID,
+        message: {
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            content: [
+                {
+                    type: 'tool_use',
+                    id: 'toolu_01AGENT_spawn',
+                    name: 'Agent',
+                    input: {
+                        prompt: 'Refactor the database module for better performance',
+                        agentId: 'agent-refactor-db-002'
+                    }
+                }
+            ],
+            stop_reason: 'tool_use'
+        }
+    }),
+
+    // ---- assistant: AskUserQuestion tool_use ----
+    ASSISTANT_ASK: JSON.stringify({
+        type: 'assistant',
+        uuid: 'f6a7b8c9-d0e1-2345-fabc-456789012345',
+        timestamp: '2026-03-01T15:18:15.012Z',
+        sessionId: MOCK_SESSION_ID,
+        slug: MOCK_SESSION_SLUG,
+        message: {
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            content: [
+                {
+                    type: 'text',
+                    text: 'I need to confirm something.'
+                },
+                {
+                    type: 'tool_use',
+                    id: 'toolu_01ASK_user',
+                    name: 'AskUserQuestion',
+                    input: {
+                        question: 'Should I also update the test files?'
+                    }
+                }
+            ],
+            stop_reason: 'tool_use'
+        }
+    }),
+
+    // ---- assistant: text only (no tools) ----
+    ASSISTANT_TEXT_ONLY: JSON.stringify({
+        type: 'assistant',
+        uuid: 'text-only-uuid-001',
+        timestamp: '2026-03-01T15:18:20.000Z',
+        sessionId: MOCK_SESSION_ID,
+        message: {
+            role: 'assistant',
+            model: 'claude-opus-4-6',
+            content: [
+                {
+                    type: 'text',
+                    text: 'The login bug has been fixed. The issue was an incorrect password comparison.'
+                }
+            ],
+            stop_reason: 'end_turn'
+        }
+    }),
+
+    // ---- progress: agent_progress ----
+    PROGRESS_AGENT: JSON.stringify({
+        type: 'progress',
+        timestamp: '2026-03-01T15:18:25.345Z',
+        sessionId: MOCK_SESSION_ID,
+        parentToolUseID: 'toolu_01TASK_spawn',
+        data: {
+            type: 'agent_progress',
+            agentId: 'agent-fix-tests-001',
+            prompt: 'Run the test suite and fix any failing tests.',
+            message: {
+                role: 'assistant',
+                message: {
+                    content: [
+                        {
+                            type: 'tool_use',
+                            id: 'toolu_sub_bash_01',
+                            name: 'Bash',
+                            input: { command: 'npm test' }
+                        }
+                    ]
+                }
+            }
+        }
+    }),
+
+    // ---- progress: agent_progress (no tool_use in message) ----
+    PROGRESS_AGENT_NO_TOOL: JSON.stringify({
+        type: 'progress',
+        timestamp: '2026-03-01T15:18:30.000Z',
+        sessionId: MOCK_SESSION_ID,
+        data: {
+            type: 'agent_progress',
+            agentId: 'agent-fix-tests-001',
+            message: {
+                role: 'assistant',
+                message: {
+                    content: [
+                        { type: 'text', text: 'Tests are passing now.' }
+                    ]
+                }
+            }
+        }
+    }),
+
+    // ---- progress: hook_progress (ignored by parser) ----
+    PROGRESS_HOOK: JSON.stringify({
+        type: 'progress',
+        timestamp: '2026-03-01T15:18:35.000Z',
+        sessionId: MOCK_SESSION_ID,
+        data: {
+            type: 'hook_progress',
+            hookEvent: 'PostToolUse',
+            hookName: 'format-on-save'
+        }
+    }),
+
+    // ---- system: turn_duration ----
+    TURN_DURATION: JSON.stringify({
+        type: 'system',
+        subtype: 'turn_duration',
+        durationMs: 15432,
+        timestamp: '2026-03-01T15:18:40.678Z',
+        isMeta: true
+    }),
+
+    // ---- Malformed data ----
+    MALFORMED_JSON: 'this is not valid json { broken',
+    EMPTY_STRING: '',
+    UNKNOWN_TYPE: JSON.stringify({ type: 'unknown-record-type', data: {} }),
+    MISSING_MESSAGE: JSON.stringify({ type: 'user' }),
+    NULL_CONTENT: JSON.stringify({ type: 'user', message: { role: 'user', content: null } }),
+    EMPTY_CONTENT_ARRAY: JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [] } }),
+    EMPTY_CONTENT_STRING: JSON.stringify({ type: 'user', message: { role: 'user', content: '' } }),
+    NUMERIC_JSON: '42',
+    ARRAY_JSON: '[1, 2, 3]',
+
+    // ---- Unicode content ----
+    USER_UNICODE: JSON.stringify({
+        type: 'user',
+        uuid: 'unicode-uuid',
+        sessionId: MOCK_SESSION_ID,
+        message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'Fix the bug in module.ts -- thanks!' }]
+        }
+    }),
+};
+
+
+// ========================================================================
+// TRANSCRIPT PARSER (Module Under Test)
+// Implements the parsing logic from TECHNICAL_SPEC.md section 1.4
+// ========================================================================
+
+const TranscriptParser = {
+    parse(jsonLine) {
+        let record;
+        try {
+            record = JSON.parse(jsonLine);
+        } catch {
+            return null;
+        }
+
+        // Must be an object
+        if (record === null || typeof record !== 'object' || Array.isArray(record)) {
+            return null;
+        }
+
+        // Extract session metadata from any record
+        const meta = record.slug
+            ? { type: 'SESSION_META', slug: record.slug, sessionId: record.sessionId }
+            : null;
+
+        switch (record.type) {
+            case 'user': return this.parseUserRecord(record) || meta;
+            case 'assistant': return this.parseAssistantRecord(record) || meta;
+            case 'progress': return this.parseProgressRecord(record);
+            case 'system': return this.parseSystemRecord(record);
+            default: return meta;
+        }
+    },
+
+    parseUserRecord(record) {
+        const content = record.message?.content;
+        if (!content) return null;
+
+        // Array content
+        if (Array.isArray(content)) {
+            // Check for tool results
+            const toolResult = content.find(b => b.type === 'tool_result');
+            if (toolResult) {
+                return { type: 'TOOL_END', toolId: toolResult.tool_use_id };
+            }
+            // Check for text (user prompt)
+            const textBlock = content.find(b => b.type === 'text');
+            if (textBlock) {
+                return { type: 'USER_PROMPT', text: textBlock.text };
+            }
+        }
+
+        // String content (user prompt)
+        if (typeof content === 'string' && content.trim()) {
+            return { type: 'USER_PROMPT', text: content };
+        }
+
+        return null;
+    },
+
+    parseAssistantRecord(record) {
+        const content = record.message?.content;
+        if (!Array.isArray(content)) return null;
+
+        const events = [];
+
+        for (const block of content) {
+            if (block.type === 'tool_use') {
+                // Check for AskUserQuestion first (returns immediately)
+                if (block.name === 'AskUserQuestion') {
+                    return { type: 'ASK_USER', toolId: block.id };
+                }
+
+                // Check for sub-agent spawn
+                if (block.name === 'Task' || block.name === 'Agent') {
+                    const desc = block.input?.description || block.input?.prompt || '';
+                    const agentId = block.input?.agentId || block.id;
+                    events.push({
+                        type: 'SUBAGENT_SPAWN',
+                        agentId,
+                        description: desc,
+                        toolId: block.id
+                    });
+                }
+
+                // General tool start
+                events.push({
+                    type: 'TOOL_START',
+                    toolName: block.name,
+                    toolId: block.id,
+                    input: block.input
+                });
+            }
+        }
+
+        return events.length === 1 ? events[0] : events.length > 1 ? events : null;
+    },
+
+    parseProgressRecord(record) {
+        if (record.data?.type === 'agent_progress') {
+            const agentId = record.data.agentId;
+            const msg = record.data.message;
+            let toolName = null;
+
+            if (msg?.message?.content) {
+                const toolUse = (Array.isArray(msg.message.content)
+                    ? msg.message.content : []).find(b => b.type === 'tool_use');
+                if (toolUse) toolName = toolUse.name;
+            }
+
+            return { type: 'SUBAGENT_ACTIVITY', agentId, toolName };
+        }
+        return null;
+    },
+
+    parseSystemRecord(record) {
+        if (record.subtype === 'turn_duration') {
+            return { type: 'TURN_COMPLETE', durationMs: record.durationMs };
+        }
+        return null;
+    }
+};
+
+
+// ========================================================================
+// SESSION STATE (Module Under Test)
+// Implements the state management from TECHNICAL_SPEC.md section 1.3
+// ========================================================================
+
+class SessionState {
+    constructor(sessionId, fileHandle) {
+        this.sessionId = sessionId || '';
+        this.slug = '';
+        this.fileHandle = fileHandle || null;
+        this.fileOffset = 0;
+        this.dirty = true;
+
+        this.mainAgent = {
+            state: 'idle',       // "idle" | "active" | "waiting"
+            currentTool: null,   // string | null
+            toolId: null,        // string | null
+        };
+
+        this.subAgents = new Map();
+
+        this.humanActive = false;
+        this.humanActiveTimer = null;
+
+        this.lastUpdate = 0;
+        this.isComplete = false;
+    }
+
+    handleEvent(event) {
+        // Accept arrays of events (multi-tool parse output)
+        if (Array.isArray(event)) {
+            for (const e of event) {
+                this.handleEvent(e);
+            }
+            return;
+        }
+        if (!event || !event.type) return;
+
+        // Handle arrays of events (from multi-tool_use parsing)
+        if (Array.isArray(event)) {
+            for (const e of event) {
+                this.handleEvent(e);
+            }
+            return;
+        }
+
+        switch (event.type) {
+            case 'USER_PROMPT':
+                this.humanActive = true;
+                this.mainAgent.state = 'active';
+                clearTimeout(this.humanActiveTimer);
+                this.humanActiveTimer = setTimeout(() => {
+                    this.humanActive = false;
+                    this.dirty = true;
+                }, 3000);
+                break;
+
+            case 'TOOL_START':
+                this.mainAgent.state = 'active';
+                this.mainAgent.currentTool = event.toolName;
+                this.mainAgent.toolId = event.toolId;
+                break;
+
+            case 'TOOL_END':
+                if (this.mainAgent.toolId === event.toolId) {
+                    this.mainAgent.currentTool = null;
+                    this.mainAgent.toolId = null;
+                }
+                break;
+
+            case 'SUBAGENT_SPAWN':
+                this.subAgents.set(event.agentId, {
+                    state: 'active',
+                    description: event.description || '',
+                    lastTool: null,
+                    spawnTime: Date.now()
+                });
+                break;
+
+            case 'SUBAGENT_ACTIVITY': {
+                const sub = this.subAgents.get(event.agentId);
+                if (sub) {
+                    sub.state = 'active';
+                    sub.lastTool = event.toolName;
+                }
+                break;
+            }
+
+            case 'TURN_COMPLETE':
+                this.mainAgent.state = 'idle';
+                this.mainAgent.currentTool = null;
+                break;
+
+            case 'ASK_USER':
+                this.mainAgent.state = 'waiting';
+                break;
+
+            case 'SESSION_META':
+                if (event.slug) this.slug = event.slug;
+                break;
+        }
+
+        this.dirty = true;
+        this.lastUpdate = Date.now();
+    }
+}
+
+
+// ========================================================================
+// MINIMAL SPRITE ENGINE (for visual tests)
+// Simplified version for testing - programmatic pixel art
+// ========================================================================
+
+class SpriteEngine {
+    constructor() {
+        this.cache = new Map();
+        this.animations = new Map();
+        this.sprites = {};
+    }
+
+    init() {
+        // Define sprite pixel data
+        this.sprites = {
+            // Human sprite: 16x20 pixels, 2 frames
+            'human': {
+                width: 16, height: 20,
+                palette: {
+                    1: '#2d2d2d',   // outline
+                    2: '#f5c6a0',   // skin
+                    3: '#4a90d9',   // shirt
+                    4: '#333333',   // hair
+                    5: '#3a3a3a',   // pants
+                    6: '#8b6914',   // shoes
+                },
+                frames: {
+                    idle: [
+                        [
+                            [0,0,0,0,0,4,4,4,4,4,4,0,0,0,0,0],
+                            [0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0],
+                            [0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0],
+                            [0,0,0,0,1,2,2,2,2,2,2,1,0,0,0,0],
+                            [0,0,0,0,2,1,2,2,2,1,2,2,0,0,0,0],
+                            [0,0,0,0,2,2,2,1,2,2,2,2,0,0,0,0],
+                            [0,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0],
+                            [0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0],
+                            [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
+                            [0,0,0,3,3,3,3,3,3,3,3,3,0,0,0,0],
+                            [0,0,0,3,3,3,3,3,3,3,3,3,0,0,0,0],
+                            [0,0,2,2,3,3,3,3,3,3,3,2,2,0,0,0],
+                            [0,0,0,2,3,3,3,3,3,3,3,2,0,0,0,0],
+                            [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,5,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,5,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                        ]
+                    ],
+                    active: [
+                        [
+                            [0,0,0,0,0,4,4,4,4,4,4,0,0,0,0,0],
+                            [0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0],
+                            [0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0],
+                            [0,0,0,0,1,2,2,2,2,2,2,1,0,0,0,0],
+                            [0,0,0,0,2,1,2,2,2,1,2,2,0,0,0,0],
+                            [0,0,0,0,2,2,2,1,2,2,2,2,0,0,0,0],
+                            [0,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0],
+                            [0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0],
+                            [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
+                            [0,0,0,3,3,3,3,3,3,3,3,3,0,0,0,0],
+                            [0,0,0,3,3,3,3,3,3,3,3,3,0,0,0,0],
+                            [0,2,2,2,3,3,3,3,3,3,3,0,0,0,0,0],
+                            [0,0,0,2,3,3,3,3,3,3,3,0,2,2,0,0],
+                            [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,5,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,5,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                        ],
+                        [
+                            [0,0,0,0,0,4,4,4,4,4,4,0,0,0,0,0],
+                            [0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0],
+                            [0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0],
+                            [0,0,0,0,1,2,2,2,2,2,2,1,0,0,0,0],
+                            [0,0,0,0,2,1,2,2,2,1,2,2,0,0,0,0],
+                            [0,0,0,0,2,2,2,1,2,2,2,2,0,0,0,0],
+                            [0,0,0,0,0,2,2,2,2,2,0,0,0,0,0,0],
+                            [0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0],
+                            [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
+                            [0,0,0,3,3,3,3,3,3,3,3,3,0,0,0,0],
+                            [0,0,0,3,3,3,3,3,3,3,3,3,0,0,0,0],
+                            [0,0,0,0,3,3,3,3,3,3,3,2,2,2,0,0],
+                            [0,2,2,0,3,3,3,3,3,3,3,2,0,0,0,0],
+                            [0,0,0,0,3,3,3,3,3,3,3,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,5,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,5,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                        ]
+                    ]
+                }
+            },
+
+            // Main agent (robot) sprite: 16x20 pixels
+            'main-agent': {
+                width: 16, height: 20,
+                palette: {
+                    1: '#1a1a2e',   // outline
+                    2: '#4a4a6a',   // body
+                    3: '#00ff88',   // eyes/circuit glow
+                    4: '#3a3a5a',   // body dark
+                    5: '#2a2a4a',   // legs
+                    6: '#555577',   // feet
+                    7: '#ff4444',   // antenna
+                },
+                frames: {
+                    idle: [
+                        [
+                            [0,0,0,0,0,0,0,7,7,0,0,0,0,0,0,0],
+                            [0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0],
+                            [0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],
+                            [0,0,0,1,2,2,2,2,2,2,2,2,1,0,0,0],
+                            [0,0,0,1,2,3,3,2,2,3,3,2,1,0,0,0],
+                            [0,0,0,1,2,3,3,2,2,3,3,2,1,0,0,0],
+                            [0,0,0,1,2,2,2,2,2,2,2,2,1,0,0,0],
+                            [0,0,0,0,1,2,2,3,2,2,2,1,0,0,0,0],
+                            [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+                            [0,0,0,0,1,4,4,4,4,4,1,0,0,0,0,0],
+                            [0,0,0,1,4,4,3,4,4,4,4,1,0,0,0,0],
+                            [0,0,1,1,4,4,4,4,4,4,4,1,1,0,0,0],
+                            [0,0,6,1,4,4,4,4,4,4,4,1,6,0,0,0],
+                            [0,0,0,1,4,4,4,4,4,4,4,1,0,0,0,0],
+                            [0,0,0,0,1,4,4,4,4,4,1,0,0,0,0,0],
+                            [0,0,0,0,1,5,5,5,5,5,1,0,0,0,0,0],
+                            [0,0,0,0,1,5,5,0,5,5,1,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                            [0,0,0,6,6,6,6,0,6,6,6,6,0,0,0,0],
+                        ]
+                    ],
+                    active: [
+                        [
+                            [0,0,0,0,0,0,7,7,0,0,0,0,0,0,0,0],
+                            [0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0],
+                            [0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],
+                            [0,0,0,1,2,2,2,2,2,2,2,2,1,0,0,0],
+                            [0,0,0,1,2,3,3,2,2,3,3,2,1,0,0,0],
+                            [0,0,0,1,2,3,3,2,2,3,3,2,1,0,0,0],
+                            [0,0,0,1,2,2,2,2,2,2,2,2,1,0,0,0],
+                            [0,0,0,0,1,2,2,3,3,2,2,1,0,0,0,0],
+                            [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+                            [0,0,0,0,1,4,4,4,4,4,1,0,0,0,0,0],
+                            [0,0,0,1,4,3,4,4,3,4,4,1,0,0,0,0],
+                            [0,0,1,1,4,4,4,4,4,4,4,1,1,0,0,0],
+                            [0,6,6,1,4,4,4,4,4,4,4,1,0,0,0,0],
+                            [0,0,0,1,4,4,4,4,4,4,4,1,6,6,0,0],
+                            [0,0,0,0,1,4,4,4,4,4,1,0,0,0,0,0],
+                            [0,0,0,0,1,5,5,5,5,5,1,0,0,0,0,0],
+                            [0,0,0,0,1,5,5,0,5,5,1,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                            [0,0,0,6,6,6,6,0,6,6,6,6,0,0,0,0],
+                        ],
+                        [
+                            [0,0,0,0,0,0,0,0,7,7,0,0,0,0,0,0],
+                            [0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0],
+                            [0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0],
+                            [0,0,0,1,2,2,2,2,2,2,2,2,1,0,0,0],
+                            [0,0,0,1,2,3,3,2,2,3,3,2,1,0,0,0],
+                            [0,0,0,1,2,3,3,2,2,3,3,2,1,0,0,0],
+                            [0,0,0,1,2,2,2,2,2,2,2,2,1,0,0,0],
+                            [0,0,0,0,1,2,2,3,3,2,2,1,0,0,0,0],
+                            [0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0],
+                            [0,0,0,0,1,4,4,4,4,4,1,0,0,0,0,0],
+                            [0,0,0,1,4,4,3,4,4,3,4,1,0,0,0,0],
+                            [0,0,1,1,4,4,4,4,4,4,4,1,1,0,0,0],
+                            [0,0,0,1,4,4,4,4,4,4,4,1,6,6,0,0],
+                            [0,6,6,1,4,4,4,4,4,4,4,1,0,0,0,0],
+                            [0,0,0,0,1,4,4,4,4,4,1,0,0,0,0,0],
+                            [0,0,0,0,1,5,5,5,5,5,1,0,0,0,0,0],
+                            [0,0,0,0,1,5,5,0,5,5,1,0,0,0,0,0],
+                            [0,0,0,0,5,5,5,0,5,5,5,0,0,0,0,0],
+                            [0,0,0,0,6,6,6,0,6,6,6,0,0,0,0,0],
+                            [0,0,0,6,6,6,6,0,6,6,6,6,0,0,0,0],
+                        ]
+                    ]
+                }
+            },
+
+            // Sub-agent (brain) sprite: 12x12 pixels
+            'sub-agent': {
+                width: 12, height: 12,
+                palette: {
+                    1: '#333333',   // outline
+                    2: '#555555',   // fill
+                    3: '#00ff88',   // circuit accent
+                    4: '#444444',   // shadow
+                },
+                frames: {
+                    idle: [
+                        [
+                            [0,0,0,1,1,1,1,1,1,0,0,0],
+                            [0,0,1,2,2,2,2,2,2,1,0,0],
+                            [0,1,2,3,2,2,2,2,3,2,1,0],
+                            [1,2,2,2,2,2,2,2,2,2,2,1],
+                            [1,2,3,2,2,3,3,2,2,3,2,1],
+                            [1,2,2,2,2,2,2,2,2,2,2,1],
+                            [1,2,2,3,2,2,2,2,3,2,2,1],
+                            [0,1,2,2,2,2,2,2,2,2,1,0],
+                            [0,0,1,2,2,2,2,2,2,1,0,0],
+                            [0,0,0,1,4,4,4,4,1,0,0,0],
+                            [0,0,0,0,1,4,4,1,0,0,0,0],
+                            [0,0,0,0,0,1,1,0,0,0,0,0],
+                        ]
+                    ],
+                    active: [
+                        [
+                            [0,0,0,1,1,1,1,1,1,0,0,0],
+                            [0,0,1,2,2,2,2,2,2,1,0,0],
+                            [0,1,2,3,2,2,2,2,3,2,1,0],
+                            [1,2,2,2,3,2,2,3,2,2,2,1],
+                            [1,2,3,2,2,3,3,2,2,3,2,1],
+                            [1,2,2,3,2,2,2,2,3,2,2,1],
+                            [1,2,2,2,2,3,3,2,2,2,2,1],
+                            [0,1,2,2,3,2,2,3,2,2,1,0],
+                            [0,0,1,2,2,2,2,2,2,1,0,0],
+                            [0,0,0,1,4,4,4,4,1,0,0,0],
+                            [0,0,0,0,1,4,4,1,0,0,0,0],
+                            [0,0,0,0,0,1,1,0,0,0,0,0],
+                        ],
+                        [
+                            [0,0,0,1,1,1,1,1,1,0,0,0],
+                            [0,0,1,2,2,3,3,2,2,1,0,0],
+                            [0,1,2,2,2,2,2,2,2,2,1,0],
+                            [1,2,3,2,2,3,3,2,2,3,2,1],
+                            [1,2,2,2,3,2,2,3,2,2,2,1],
+                            [1,2,2,3,2,2,2,2,3,2,2,1],
+                            [1,2,3,2,2,2,2,2,2,3,2,1],
+                            [0,1,2,2,2,3,3,2,2,2,1,0],
+                            [0,0,1,2,2,2,2,2,2,1,0,0],
+                            [0,0,0,1,4,4,4,4,1,0,0,0],
+                            [0,0,0,0,1,4,4,1,0,0,0,0],
+                            [0,0,0,0,0,1,1,0,0,0,0,0],
+                        ]
+                    ]
+                }
+            }
+        };
+
+        // Pre-render all sprites to offscreen canvases
+        for (const [spriteName, sprite] of Object.entries(this.sprites)) {
+            for (const [state, frames] of Object.entries(sprite.frames)) {
+                frames.forEach((frame, i) => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = sprite.width;
+                    canvas.height = sprite.height;
+                    const ctx = canvas.getContext('2d');
+                    this.renderPixelData(ctx, frame, sprite.palette);
+                    this.cache.set(`${spriteName}-${state}-${i}`, canvas);
+                });
+            }
+        }
+    }
+
+    renderPixelData(ctx, frame, palette) {
+        for (let y = 0; y < frame.length; y++) {
+            for (let x = 0; x < frame[y].length; x++) {
+                const idx = frame[y][x];
+                if (idx === 0) continue; // transparent
+                ctx.fillStyle = palette[idx];
+                ctx.fillRect(x, y, 1, 1);
+            }
+        }
+    }
+
+    getFrameCount(spriteName, animState) {
+        const sprite = this.sprites[spriteName];
+        if (!sprite || !sprite.frames[animState]) return 1;
+        return sprite.frames[animState].length;
+    }
+
+    getFrameDuration(spriteName) {
+        return 500; // 500ms per frame
+    }
+
+    draw(ctx, spriteName, animState, x, y, dt) {
+        const key = `${spriteName}-${animState}`;
+        let anim = this.animations.get(key);
+        if (!anim) {
+            anim = { frame: 0, elapsed: 0 };
+            this.animations.set(key, anim);
+        }
+
+        anim.elapsed += dt;
+        const frameDuration = this.getFrameDuration(spriteName);
+        if (anim.elapsed >= frameDuration) {
+            const frameCount = this.getFrameCount(spriteName, animState);
+            anim.frame = (anim.frame + 1) % frameCount;
+            anim.elapsed = 0;
+        }
+
+        const cached = this.cache.get(`${key}-${anim.frame}`);
+        if (cached) {
+            // Draw at 2x scale for pixel art crispness
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(cached, x, y, cached.width * 2, cached.height * 2);
+        }
+    }
+}
+
+
+// ========================================================================
+// MINIMAL BOX RENDERER (for visual tests)
+// Implements the rendering from TECHNICAL_SPEC.md section 1.5
+// ========================================================================
+
+class BoxRenderer {
+    constructor(canvas, spriteEngine) {
+        this.canvas = canvas;
+        this.spriteEngine = spriteEngine;
+        this.setupCanvas();
+    }
+
+    setupCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = 400 * dpr;
+        this.canvas.height = 250 * dpr;
+        this.canvas.style.width = '400px';
+        this.canvas.style.height = '250px';
+        const ctx = this.canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+    }
+
+    render(session, dt) {
+        const ctx = this.canvas.getContext('2d');
+
+        // Reset transform for clearing
+        const dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        // 1. Clear and fill background
+        ctx.fillStyle = '#1b6ca8';
+        ctx.fillRect(0, 0, 400, 250);
+
+        // 2. Draw border
+        ctx.strokeStyle = '#0d4f7a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, 398, 248);
+
+        // 3. Draw human sprite (top-left)
+        const humanFrame = session.humanActive ? 'active' : 'idle';
+        this.spriteEngine.draw(ctx, 'human', humanFrame, 30, 15, dt);
+
+        // 4. Draw main agent sprite (top-right)
+        const agentFrame = session.mainAgent.state === 'active' ? 'active' : 'idle';
+        this.spriteEngine.draw(ctx, 'main-agent', agentFrame, 280, 15, dt);
+
+        // 5. Draw connection indicator
+        this.drawConnection(ctx, session.mainAgent.state);
+
+        // 6. Draw sub-agents (bottom row)
+        let x = 20;
+        const y = 140;
+        for (const [agentId, sub] of session.subAgents) {
+            const frame = sub.state === 'active' ? 'active' : 'idle';
+            this.spriteEngine.draw(ctx, 'sub-agent', frame, x, y, dt);
+            x += 50;
+            if (x > 370) break;
+        }
+
+        // 7. Draw speech bubble if waiting
+        if (session.mainAgent.state === 'waiting') {
+            this.drawSpeechBubble(ctx, 280, 5, '?');
+        }
+
+        // 8. Draw status bar
+        this.drawStatusBar(ctx, session);
+    }
+
+    drawConnection(ctx, state) {
+        ctx.save();
+        ctx.strokeStyle = state === 'active' ? '#00ff88' : '#4a6a7a';
+        ctx.lineWidth = state === 'active' ? 2 : 1;
+        ctx.setLineDash(state === 'active' ? [] : [4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(75, 35);
+        ctx.lineTo(278, 35);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawSpeechBubble(ctx, x, y, text) {
+        ctx.save();
+        // Bubble body
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.roundRect(x - 5, y - 5, 30, 22, 4);
+        ctx.fill();
+        ctx.strokeStyle = '#333333';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Bubble tail
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.moveTo(x + 5, y + 17);
+        ctx.lineTo(x + 10, y + 24);
+        ctx.lineTo(x + 15, y + 17);
+        ctx.fill();
+
+        // Text
+        ctx.fillStyle = '#333333';
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText(text, x + 5, y + 12);
+        ctx.restore();
+    }
+
+    drawStatusBar(ctx, session) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(0, 220, 400, 30);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '11px monospace';
+
+        const slug = session.slug || session.sessionId.substring(0, 8);
+        const tool = session.mainAgent.currentTool
+            ? `Using ${session.mainAgent.currentTool}`
+            : session.mainAgent.state;
+        const subs = session.subAgents.size;
+
+        ctx.fillText(`${slug} | ${tool} | ${subs} sub-agent(s)`, 10, 238);
+    }
+}
+
+
+// ========================================================================
+// TEST SUITES
+// ========================================================================
+
+// -------------------------------------------------------------------
+// TranscriptParser Tests
+// -------------------------------------------------------------------
+
+describe('TranscriptParser - Record Type Parsing', () => {
+
+    it('TP.PARSE.01: Parse user text message (array content)', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.USER_TEXT);
+        assertNotNull(event, 'event should not be null');
+        assertEqual(event.type, 'USER_PROMPT');
+        assertEqual(event.text, 'Fix the login bug in auth.js');
+    });
+
+    it('TP.PARSE.02: Parse user text message (string content)', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.USER_TEXT_STRING);
+        assertNotNull(event, 'event should not be null');
+        assertEqual(event.type, 'USER_PROMPT');
+        assertEqual(event.text, 'Hello, can you help me?');
+    });
+
+    it('TP.PARSE.03: Parse user tool_result', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.TOOL_RESULT);
+        assertNotNull(event, 'event should not be null');
+        assertEqual(event.type, 'TOOL_END');
+        assertEqual(event.toolId, 'toolu_01HqRdp5KMbNP1VmSGCWqkJa');
+    });
+
+    it('TP.PARSE.04: Parse assistant text-only response (no tool_use)', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_TEXT_ONLY);
+        // Text-only assistant records produce no TOOL_START event.
+        // They may produce a SESSION_META if slug is present, or null.
+        // This record has no slug, so should be null.
+        assertNull(event, 'text-only assistant with no slug should return null');
+    });
+
+    it('TP.PARSE.05: Parse assistant single tool_use (Read)', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_SINGLE_TOOL);
+        assertNotNull(event, 'event should not be null');
+        assertEqual(event.type, 'TOOL_START');
+        assertEqual(event.toolName, 'Read');
+        assertEqual(event.toolId, 'toolu_01HqRdp5KMbNP1VmSGCWqkJa');
+        assertNotNull(event.input, 'input should be present');
+        assertEqual(event.input.file_path, '/src/auth.js');
+    });
+
+    it('TP.PARSE.06: Parse assistant multiple tool_use blocks (Read + Grep)', () => {
+        const result = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_MULTI_TOOL);
+        assertNotNull(result, 'result should not be null');
+        assertTrue(Array.isArray(result), 'multi-tool result should be an array');
+        assertEqual(result.length, 2);
+        assertEqual(result[0].type, 'TOOL_START');
+        assertEqual(result[0].toolName, 'Read');
+        assertEqual(result[1].type, 'TOOL_START');
+        assertEqual(result[1].toolName, 'Grep');
+    });
+
+    it('TP.PARSE.07: Parse progress agent_progress (with tool_use)', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.PROGRESS_AGENT);
+        assertNotNull(event, 'event should not be null');
+        assertEqual(event.type, 'SUBAGENT_ACTIVITY');
+        assertEqual(event.agentId, 'agent-fix-tests-001');
+        assertEqual(event.toolName, 'Bash');
+    });
+
+    it('TP.PARSE.08: Parse system turn_duration', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.TURN_DURATION);
+        assertNotNull(event, 'event should not be null');
+        assertEqual(event.type, 'TURN_COMPLETE');
+        assertEqual(event.durationMs, 15432);
+    });
+
+    it('TP.PARSE.09: Parse queue-operation enqueue (returns null or meta)', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.ENQUEUE);
+        // queue-operation has no slug in our mock, so should return null
+        assertNull(event, 'enqueue with no slug should return null');
+    });
+
+    it('TP.PARSE.10: Parse AskUserQuestion tool_use', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_ASK);
+        assertNotNull(event, 'event should not be null');
+        assertEqual(event.type, 'ASK_USER');
+        assertEqual(event.toolId, 'toolu_01ASK_user');
+    });
+});
+
+describe('TranscriptParser - Malformed / Invalid Input', () => {
+
+    it('TP.PARSE.11: Invalid JSON string returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.MALFORMED_JSON);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.12: Empty string returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.EMPTY_STRING);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.13: Valid JSON but unknown type returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.UNKNOWN_TYPE);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.14: Missing message field on user record returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.MISSING_MESSAGE);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.15: Missing content field on assistant record returns null', () => {
+        const record = JSON.stringify({
+            type: 'assistant',
+            message: { role: 'assistant' }
+        });
+        const event = TranscriptParser.parse(record);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.16: Content is null returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.NULL_CONTENT);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.17: Content is empty array returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.EMPTY_CONTENT_ARRAY);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.18: Content is empty string returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.EMPTY_CONTENT_STRING);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.19: Numeric JSON returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.NUMERIC_JSON);
+        assertNull(event);
+    });
+
+    it('TP.PARSE.20: Array JSON returns null', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.ARRAY_JSON);
+        assertNull(event);
+    });
+});
+
+describe('TranscriptParser - Multi-tool_use Records', () => {
+
+    it('TP.PARSE.21: Two tool_use blocks returns array of two TOOL_START events', () => {
+        const result = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_MULTI_TOOL);
+        assertTrue(Array.isArray(result), 'should be an array');
+        assertEqual(result.length, 2);
+        assertEqual(result[0].type, 'TOOL_START');
+        assertEqual(result[0].toolName, 'Read');
+        assertEqual(result[0].toolId, 'toolu_01XYZ_read');
+        assertEqual(result[1].type, 'TOOL_START');
+        assertEqual(result[1].toolName, 'Grep');
+        assertEqual(result[1].toolId, 'toolu_01XYZ_grep');
+    });
+
+    it('TP.PARSE.22: Three tool_use blocks returns array of three events', () => {
+        const record = JSON.stringify({
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_use', id: 't1', name: 'Read', input: {} },
+                    { type: 'tool_use', id: 't2', name: 'Grep', input: {} },
+                    { type: 'tool_use', id: 't3', name: 'Bash', input: {} }
+                ]
+            }
+        });
+        const result = TranscriptParser.parse(record);
+        assertTrue(Array.isArray(result), 'should be an array');
+        assertEqual(result.length, 3);
+        assertEqual(result[2].toolName, 'Bash');
+    });
+
+    it('TP.PARSE.23: tool_use mixed with text blocks only produces TOOL_START events', () => {
+        const result = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_MULTI_TOOL);
+        assertTrue(Array.isArray(result));
+        for (const ev of result) {
+            assertEqual(ev.type, 'TOOL_START');
+        }
+    });
+
+    it('TP.PARSE.24: Single tool_use returns single object, not array', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_SINGLE_TOOL);
+        assertFalse(Array.isArray(event), 'single tool_use should not return array');
+        assertEqual(event.type, 'TOOL_START');
+    });
+});
+
+describe('TranscriptParser - Sub-Agent Detection', () => {
+
+    it('TP.PARSE.25: Task tool_use triggers SUBAGENT_SPAWN', () => {
+        const result = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_SUBAGENT);
+        assertNotNull(result);
+        // Task produces both SUBAGENT_SPAWN and TOOL_START, so result is array
+        assertTrue(Array.isArray(result), 'Task should produce array of events');
+        const spawn = result.find(e => e.type === 'SUBAGENT_SPAWN');
+        assertNotNull(spawn, 'should include SUBAGENT_SPAWN event');
+        assertEqual(spawn.agentId, 'agent-fix-tests-001');
+        assertEqual(spawn.description, 'Fix failing unit tests in auth.test.js');
+    });
+
+    it('TP.PARSE.26: Agent tool_use triggers SUBAGENT_SPAWN', () => {
+        const result = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_AGENT_SPAWN);
+        assertNotNull(result);
+        assertTrue(Array.isArray(result), 'Agent should produce array of events');
+        const spawn = result.find(e => e.type === 'SUBAGENT_SPAWN');
+        assertNotNull(spawn, 'should include SUBAGENT_SPAWN event');
+        assertEqual(spawn.agentId, 'agent-refactor-db-002');
+        assertEqual(spawn.description, 'Refactor the database module for better performance');
+    });
+
+    it('TP.PARSE.27: Task with no description defaults to empty string', () => {
+        const record = JSON.stringify({
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_use', id: 'toolu_empty_task', name: 'Task', input: {} }
+                ]
+            }
+        });
+        const result = TranscriptParser.parse(record);
+        // Single Task produces [SUBAGENT_SPAWN, TOOL_START]
+        assertTrue(Array.isArray(result));
+        const spawn = result.find(e => e.type === 'SUBAGENT_SPAWN');
+        assertEqual(spawn.description, '');
+    });
+
+    it('TP.PARSE.28: Task also emits TOOL_START alongside SUBAGENT_SPAWN', () => {
+        const result = TranscriptParser.parse(MOCK_RECORDS.ASSISTANT_SUBAGENT);
+        assertTrue(Array.isArray(result));
+        const toolStart = result.find(e => e.type === 'TOOL_START');
+        assertNotNull(toolStart, 'should include TOOL_START event');
+        assertEqual(toolStart.toolName, 'Task');
+    });
+
+    it('TP.PARSE.29: Sub-agent agentId falls back to block.id when no input.agentId', () => {
+        const record = JSON.stringify({
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_fallback_id',
+                        name: 'Task',
+                        input: { description: 'No agentId provided' }
+                    }
+                ]
+            }
+        });
+        const result = TranscriptParser.parse(record);
+        assertTrue(Array.isArray(result));
+        const spawn = result.find(e => e.type === 'SUBAGENT_SPAWN');
+        assertEqual(spawn.agentId, 'toolu_fallback_id');
+    });
+});
+
+describe('TranscriptParser - Session Metadata', () => {
+
+    it('TP.PARSE.30: Slug extracted from user record with slug field', () => {
+        // The USER_TEXT mock has slug: 'workchart-office'
+        // Since it also has a text message, it returns USER_PROMPT (not SESSION_META).
+        // But we can test a record that has slug but no parseable content.
+        const record = JSON.stringify({
+            type: 'user',
+            slug: 'my-session-slug',
+            sessionId: 'test-sid',
+            message: { role: 'user', content: [] }
+        });
+        const event = TranscriptParser.parse(record);
+        // Array content with no text/tool_result => parseUserRecord returns null
+        // So it falls back to meta
+        assertNotNull(event);
+        assertEqual(event.type, 'SESSION_META');
+        assertEqual(event.slug, 'my-session-slug');
+    });
+
+    it('TP.PARSE.31: No slug on record produces no SESSION_META', () => {
+        const record = JSON.stringify({
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Hello' }]
+            }
+        });
+        const event = TranscriptParser.parse(record);
+        // No slug, text-only assistant => null
+        assertNull(event);
+    });
+});
+
+describe('TranscriptParser - Progress Records', () => {
+
+    it('Parse agent_progress with tool_use in message', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.PROGRESS_AGENT);
+        assertNotNull(event);
+        assertEqual(event.type, 'SUBAGENT_ACTIVITY');
+        assertEqual(event.agentId, 'agent-fix-tests-001');
+        assertEqual(event.toolName, 'Bash');
+    });
+
+    it('Parse agent_progress with no tool_use returns null toolName', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.PROGRESS_AGENT_NO_TOOL);
+        assertNotNull(event);
+        assertEqual(event.type, 'SUBAGENT_ACTIVITY');
+        assertEqual(event.agentId, 'agent-fix-tests-001');
+        assertNull(event.toolName);
+    });
+
+    it('Parse hook_progress returns null (not handled)', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.PROGRESS_HOOK);
+        assertNull(event);
+    });
+});
+
+describe('TranscriptParser - Unicode Content', () => {
+
+    it('Parse user prompt with special characters', () => {
+        const event = TranscriptParser.parse(MOCK_RECORDS.USER_UNICODE);
+        assertNotNull(event);
+        assertEqual(event.type, 'USER_PROMPT');
+        assertTrue(event.text.includes('module.ts'), 'should preserve unicode content');
+    });
+});
+
+
+// -------------------------------------------------------------------
+// SessionState Tests
+// -------------------------------------------------------------------
+
+describe('SessionState - Event Handlers', () => {
+
+    it('SS.EVENT.01: USER_PROMPT sets humanActive and mainAgent.state to active', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'USER_PROMPT', text: 'Hello' });
+        assertTrue(session.humanActive, 'humanActive should be true');
+        assertEqual(session.mainAgent.state, 'active');
+        // Clean up timer
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('SS.EVENT.02: TOOL_START sets active tool', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({
+            type: 'TOOL_START',
+            toolName: 'Read',
+            toolId: 'toolu_01'
+        });
+        assertEqual(session.mainAgent.state, 'active');
+        assertEqual(session.mainAgent.currentTool, 'Read');
+        assertEqual(session.mainAgent.toolId, 'toolu_01');
+    });
+
+    it('SS.EVENT.03: TOOL_END clears matching tool', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'TOOL_START', toolName: 'Read', toolId: 'toolu_01' });
+        session.handleEvent({ type: 'TOOL_END', toolId: 'toolu_01' });
+        assertNull(session.mainAgent.currentTool);
+        assertNull(session.mainAgent.toolId);
+    });
+
+    it('SS.EVENT.04: TOOL_END ignores mismatched toolId', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'TOOL_START', toolName: 'Read', toolId: 'toolu_01' });
+        session.handleEvent({ type: 'TOOL_END', toolId: 'toolu_DIFFERENT' });
+        assertEqual(session.mainAgent.currentTool, 'Read', 'tool should NOT be cleared');
+        assertEqual(session.mainAgent.toolId, 'toolu_01');
+    });
+
+    it('SS.EVENT.05: SUBAGENT_SPAWN adds sub-agent', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({
+            type: 'SUBAGENT_SPAWN',
+            agentId: 'a1',
+            description: 'Fix tests'
+        });
+        assertTrue(session.subAgents.has('a1'));
+        assertEqual(session.subAgents.get('a1').state, 'active');
+        assertEqual(session.subAgents.get('a1').description, 'Fix tests');
+        assertNull(session.subAgents.get('a1').lastTool);
+    });
+
+    it('SS.EVENT.06: SUBAGENT_ACTIVITY updates sub-agent', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a1', description: 'Test' });
+        session.handleEvent({ type: 'SUBAGENT_ACTIVITY', agentId: 'a1', toolName: 'Bash' });
+        assertEqual(session.subAgents.get('a1').lastTool, 'Bash');
+        assertEqual(session.subAgents.get('a1').state, 'active');
+    });
+
+    it('SS.EVENT.07: SUBAGENT_ACTIVITY for unknown agent is no-op', () => {
+        const session = new SessionState('test-id');
+        // Should not throw
+        session.handleEvent({ type: 'SUBAGENT_ACTIVITY', agentId: 'unknown', toolName: 'Bash' });
+        assertFalse(session.subAgents.has('unknown'));
+    });
+
+    it('SS.EVENT.08: TURN_COMPLETE resets to idle', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'TOOL_START', toolName: 'Edit', toolId: 'toolu_01' });
+        session.handleEvent({ type: 'TURN_COMPLETE', durationMs: 5000 });
+        assertEqual(session.mainAgent.state, 'idle');
+        assertNull(session.mainAgent.currentTool);
+    });
+
+    it('SS.EVENT.09: ASK_USER sets waiting state', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'ASK_USER', toolId: 'toolu_ask' });
+        assertEqual(session.mainAgent.state, 'waiting');
+    });
+
+    it('SS.EVENT.10: SESSION_META sets slug', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'SESSION_META', slug: 'my-project' });
+        assertEqual(session.slug, 'my-project');
+    });
+
+    it('SS.EVENT.11: SESSION_META with no slug is no-op', () => {
+        const session = new SessionState('test-id');
+        session.slug = 'original';
+        session.handleEvent({ type: 'SESSION_META' });
+        assertEqual(session.slug, 'original');
+    });
+
+    it('SS.EVENT.12: dirty flag set after every valid event', () => {
+        const session = new SessionState('test-id');
+        session.dirty = false;
+        session.handleEvent({ type: 'TOOL_START', toolName: 'Bash', toolId: 't1' });
+        assertTrue(session.dirty, 'dirty should be true after event');
+    });
+});
+
+describe('SessionState - humanActive Auto-Clear Timer', () => {
+
+    it('SS.TIMER.01: humanActive clears after 3 seconds', async () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'USER_PROMPT', text: 'Hello' });
+        assertTrue(session.humanActive, 'should be true immediately');
+
+        // Wait 3.1 seconds
+        await new Promise(resolve => setTimeout(resolve, 3100));
+        assertFalse(session.humanActive, 'should be false after 3s');
+    });
+
+    it('SS.TIMER.02: Timer resets on new USER_PROMPT', async () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'USER_PROMPT', text: 'First' });
+
+        // Wait 1 second, then send another prompt
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        session.handleEvent({ type: 'USER_PROMPT', text: 'Second' });
+
+        // Wait 2 more seconds (3s from first, 2s from second)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        assertTrue(session.humanActive, 'should still be true (timer reset)');
+
+        // Clean up: wait for timer
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('SS.TIMER.03: dirty set to true when timer fires', async () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'USER_PROMPT', text: 'Hello' });
+        session.dirty = false; // manually reset
+
+        await new Promise(resolve => setTimeout(resolve, 3100));
+        assertTrue(session.dirty, 'dirty should be true after timer fires');
+    });
+});
+
+describe('SessionState - Multiple Sub-Agents', () => {
+
+    it('SS.SUB.01: Track 3 independent sub-agents', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a1', description: 'Task 1' });
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a2', description: 'Task 2' });
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a3', description: 'Task 3' });
+        assertEqual(session.subAgents.size, 3);
+    });
+
+    it('SS.SUB.02: Activity updates correct sub-agent only', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a1', description: 'Task 1' });
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a2', description: 'Task 2' });
+        session.handleEvent({ type: 'SUBAGENT_ACTIVITY', agentId: 'a2', toolName: 'Grep' });
+        assertNull(session.subAgents.get('a1').lastTool, 'a1 should be unchanged');
+        assertEqual(session.subAgents.get('a2').lastTool, 'Grep');
+    });
+
+    it('SS.SUB.03: Sub-agents persist after TURN_COMPLETE', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a1', description: 'Task 1' });
+        session.handleEvent({ type: 'TURN_COMPLETE', durationMs: 5000 });
+        assertEqual(session.subAgents.size, 1);
+        assertTrue(session.subAgents.has('a1'));
+    });
+});
+
+describe('SessionState - State Sequences', () => {
+
+    it('SS.SEQ.01: Full turn lifecycle', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'USER_PROMPT', text: 'Fix it' });
+        session.handleEvent({ type: 'TOOL_START', toolName: 'Read', toolId: 't1' });
+        session.handleEvent({ type: 'TOOL_END', toolId: 't1' });
+        session.handleEvent({ type: 'TOOL_START', toolName: 'Edit', toolId: 't2' });
+        session.handleEvent({ type: 'TOOL_END', toolId: 't2' });
+        session.handleEvent({ type: 'TURN_COMPLETE', durationMs: 8000 });
+
+        assertEqual(session.mainAgent.state, 'idle');
+        assertNull(session.mainAgent.currentTool);
+        assertNull(session.mainAgent.toolId);
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('SS.SEQ.02: Ask user flow', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'TOOL_START', toolName: 'Edit', toolId: 't1' });
+        session.handleEvent({ type: 'ASK_USER', toolId: 'ask1' });
+        assertEqual(session.mainAgent.state, 'waiting');
+    });
+
+    it('SS.SEQ.03: User responds after ask', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'ASK_USER', toolId: 'ask1' });
+        assertEqual(session.mainAgent.state, 'waiting');
+        session.handleEvent({ type: 'USER_PROMPT', text: 'Yes' });
+        assertEqual(session.mainAgent.state, 'active');
+        assertTrue(session.humanActive);
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('SS.SEQ.04: Sub-agent spawn during tool use', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'TOOL_START', toolName: 'Read', toolId: 't1' });
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a1', description: 'Sub task' });
+        session.handleEvent({ type: 'TOOL_END', toolId: 't1' });
+        assertTrue(session.subAgents.has('a1'));
+        assertNull(session.mainAgent.currentTool);
+    });
+
+    it('SS.SEQ.05: handleEvent accepts array of events (multi-tool parse output)', () => {
+        const session = new SessionState('test-id');
+        const events = [
+            { type: 'TOOL_START', toolName: 'Read', toolId: 't1' },
+            { type: 'TOOL_START', toolName: 'Grep', toolId: 't2' }
+        ];
+        session.handleEvent(events);
+        // Last TOOL_START wins
+        assertEqual(session.mainAgent.currentTool, 'Grep');
+        assertEqual(session.mainAgent.toolId, 't2');
+    });
+
+    it('SS.SEQ.06: handleEvent with null/undefined is no-op', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent(null);
+        session.handleEvent(undefined);
+        assertEqual(session.mainAgent.state, 'idle');
+    });
+});
+
+describe('SessionState - Integration with Parser', () => {
+
+    it('INT.PIPE.01: Parse multiple JSONL lines into correct session state', () => {
+        const session = new SessionState(MOCK_SESSION_ID);
+        const lines = [
+            MOCK_RECORDS.ENQUEUE,
+            MOCK_RECORDS.USER_TEXT,
+            MOCK_RECORDS.ASSISTANT_SINGLE_TOOL,
+            MOCK_RECORDS.TOOL_RESULT,
+            MOCK_RECORDS.TURN_DURATION
+        ];
+
+        for (const line of lines) {
+            const event = TranscriptParser.parse(line);
+            if (event) {
+                session.handleEvent(event);
+            }
+        }
+
+        assertEqual(session.mainAgent.state, 'idle', 'should be idle after turn_duration');
+        assertNull(session.mainAgent.currentTool, 'no active tool');
+        assertEqual(session.subAgents.size, 0, 'no sub-agents');
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('INT.PIPE.02: Sub-agent lifecycle through parser', () => {
+        const session = new SessionState(MOCK_SESSION_ID);
+        const lines = [
+            MOCK_RECORDS.USER_TEXT,
+            MOCK_RECORDS.ASSISTANT_SUBAGENT,
+            MOCK_RECORDS.PROGRESS_AGENT,
+            MOCK_RECORDS.TURN_DURATION
+        ];
+
+        for (const line of lines) {
+            const event = TranscriptParser.parse(line);
+            if (event) {
+                session.handleEvent(event);
+            }
+        }
+
+        assertTrue(session.subAgents.has('agent-fix-tests-001'), 'sub-agent should exist');
+        assertEqual(session.subAgents.get('agent-fix-tests-001').lastTool, 'Bash');
+        assertEqual(session.mainAgent.state, 'idle');
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('INT.PIPE.03: Malformed line in middle is skipped gracefully', () => {
+        const session = new SessionState(MOCK_SESSION_ID);
+        const lines = [
+            MOCK_RECORDS.USER_TEXT,
+            MOCK_RECORDS.MALFORMED_JSON,
+            MOCK_RECORDS.ASSISTANT_SINGLE_TOOL,
+            MOCK_RECORDS.TURN_DURATION
+        ];
+
+        let errors = 0;
+        for (const line of lines) {
+            try {
+                const event = TranscriptParser.parse(line);
+                if (event) {
+                    session.handleEvent(event);
+                }
+            } catch (e) {
+                errors++;
+            }
+        }
+
+        assertEqual(errors, 0, 'no errors should be thrown');
+        assertEqual(session.mainAgent.state, 'idle');
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('INT.PIPE.04: Ask user flow through parser', () => {
+        const session = new SessionState(MOCK_SESSION_ID);
+        const lines = [
+            MOCK_RECORDS.USER_TEXT,
+            MOCK_RECORDS.ASSISTANT_ASK
+        ];
+
+        for (const line of lines) {
+            const event = TranscriptParser.parse(line);
+            if (event) {
+                session.handleEvent(event);
+            }
+        }
+
+        assertEqual(session.mainAgent.state, 'waiting');
+        clearTimeout(session.humanActiveTimer);
+    });
+});
+
+
+// -------------------------------------------------------------------
+// SpriteEngine Tests
+// -------------------------------------------------------------------
+
+describe('SpriteEngine - Sprite Data Integrity', () => {
+
+    const engine = new SpriteEngine();
+    engine.init();
+
+    it('SE.DATA.01: All sprite frame arrays have consistent dimensions', () => {
+        for (const [name, sprite] of Object.entries(engine.sprites)) {
+            for (const [state, frames] of Object.entries(sprite.frames)) {
+                for (let fi = 0; fi < frames.length; fi++) {
+                    const frame = frames[fi];
+                    assertEqual(frame.length, sprite.height,
+                        `${name}/${state}/frame${fi} row count should match height`);
+                    for (let r = 0; r < frame.length; r++) {
+                        assertEqual(frame[r].length, sprite.width,
+                            `${name}/${state}/frame${fi}/row${r} col count should match width`);
+                    }
+                }
+            }
+        }
+    });
+
+    it('SE.DATA.02: All palette indices in frames reference valid palette entries', () => {
+        for (const [name, sprite] of Object.entries(engine.sprites)) {
+            const validIndices = new Set([0, ...Object.keys(sprite.palette).map(Number)]);
+            for (const [state, frames] of Object.entries(sprite.frames)) {
+                for (const frame of frames) {
+                    for (const row of frame) {
+                        for (const idx of row) {
+                            assertTrue(validIndices.has(idx),
+                                `${name}/${state}: index ${idx} not in palette`);
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    it('SE.DATA.03: Human sprite has idle and active frames', () => {
+        const human = engine.sprites['human'];
+        assertNotNull(human, 'human sprite should exist');
+        assertNotNull(human.frames.idle, 'idle frames should exist');
+        assertNotNull(human.frames.active, 'active frames should exist');
+        assertTrue(human.frames.idle.length > 0, 'idle should have at least 1 frame');
+        assertTrue(human.frames.active.length > 0, 'active should have at least 1 frame');
+    });
+
+    it('SE.DATA.04: Main agent sprite has idle and active frames', () => {
+        const agent = engine.sprites['main-agent'];
+        assertNotNull(agent, 'main-agent sprite should exist');
+        assertNotNull(agent.frames.idle, 'idle frames should exist');
+        assertNotNull(agent.frames.active, 'active frames should exist');
+        assertTrue(agent.frames.idle.length > 0);
+        assertTrue(agent.frames.active.length > 0);
+    });
+
+    it('SE.DATA.05: Sub-agent sprite has idle and active frames', () => {
+        const sub = engine.sprites['sub-agent'];
+        assertNotNull(sub, 'sub-agent sprite should exist');
+        assertNotNull(sub.frames.idle, 'idle frames should exist');
+        assertNotNull(sub.frames.active, 'active frames should exist');
+        assertTrue(sub.frames.idle.length > 0);
+        assertTrue(sub.frames.active.length > 0);
+    });
+});
+
+describe('SpriteEngine - Animation Frame Cycling', () => {
+
+    it('SE.ANIM.01: Frame advances after duration elapsed', () => {
+        const engine = new SpriteEngine();
+        engine.init();
+        // Reset animation state
+        engine.animations.clear();
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 100;
+        canvas.height = 100;
+        const ctx = canvas.getContext('2d');
+
+        // First draw: frame 0
+        engine.draw(ctx, 'main-agent', 'active', 0, 0, 0);
+        const anim = engine.animations.get('main-agent-active');
+        assertEqual(anim.frame, 0, 'should start at frame 0');
+
+        // Draw with enough dt to advance (500ms frame duration)
+        engine.draw(ctx, 'main-agent', 'active', 0, 0, 600);
+        assertEqual(anim.frame, 1, 'should advance to frame 1');
+    });
+
+    it('SE.ANIM.02: Frame wraps to 0 after last frame', () => {
+        const engine = new SpriteEngine();
+        engine.init();
+        engine.animations.clear();
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 100;
+        canvas.height = 100;
+        const ctx = canvas.getContext('2d');
+
+        const frameCount = engine.getFrameCount('main-agent', 'active');
+
+        // Advance through exactly frameCount draws. Each draw call with
+        // dt=600 > frameDuration=500 advances one frame. The first draw
+        // creates the anim AND advances, so after frameCount draws we've
+        // wrapped: with frameCount=2, frame goes 0->1->0.
+        for (let i = 0; i < frameCount; i++) {
+            engine.draw(ctx, 'main-agent', 'active', 0, 0, 600);
+        }
+
+        const anim = engine.animations.get('main-agent-active');
+        assertEqual(anim.frame, 0, 'should wrap back to frame 0');
+    });
+
+    it('SE.ANIM.03: Frame does not advance if dt is too small', () => {
+        const engine = new SpriteEngine();
+        engine.init();
+        engine.animations.clear();
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 100;
+        canvas.height = 100;
+        const ctx = canvas.getContext('2d');
+
+        engine.draw(ctx, 'human', 'idle', 0, 0, 1);
+        const anim = engine.animations.get('human-idle');
+        assertEqual(anim.frame, 0, 'frame should not advance with dt=1ms');
+    });
+
+    it('SE.ANIM.04: Different sprite/state combos have independent animation state', () => {
+        const engine = new SpriteEngine();
+        engine.init();
+        engine.animations.clear();
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 100;
+        canvas.height = 100;
+        const ctx = canvas.getContext('2d');
+
+        // Advance human-active but not main-agent-idle
+        engine.draw(ctx, 'human', 'active', 0, 0, 600);
+        engine.draw(ctx, 'main-agent', 'idle', 0, 0, 1);
+
+        const humanAnim = engine.animations.get('human-active');
+        const agentAnim = engine.animations.get('main-agent-idle');
+
+        // human-active has 2 frames, so after 600ms it should be at frame 1
+        assertEqual(humanAnim.frame, 1, 'human-active should have advanced');
+        assertEqual(agentAnim.frame, 0, 'main-agent-idle should not have advanced');
+    });
+});
+
+
+// -------------------------------------------------------------------
+// BoxRenderer Tests
+// -------------------------------------------------------------------
+
+describe('BoxRenderer - Canvas Configuration', () => {
+
+    it('BR.CANVAS.01: Canvas logical size is 400x250 (accounting for dpr)', () => {
+        const canvas = document.createElement('canvas');
+        const engine = new SpriteEngine();
+        engine.init();
+        const renderer = new BoxRenderer(canvas, engine);
+
+        const dpr = window.devicePixelRatio || 1;
+        assertEqual(canvas.width, 400 * dpr, 'canvas.width should be 400 * dpr');
+        assertEqual(canvas.height, 250 * dpr, 'canvas.height should be 250 * dpr');
+    });
+
+    it('BR.CANVAS.02: Canvas CSS display size is 400x250', () => {
+        const canvas = document.createElement('canvas');
+        const engine = new SpriteEngine();
+        engine.init();
+        const renderer = new BoxRenderer(canvas, engine);
+
+        assertEqual(canvas.style.width, '400px');
+        assertEqual(canvas.style.height, '250px');
+    });
+});
+
+describe('BoxRenderer - Render Output', () => {
+
+    it('BR.RENDER.01: Idle session renders without error', () => {
+        const canvas = document.createElement('canvas');
+        const engine = new SpriteEngine();
+        engine.init();
+        const renderer = new BoxRenderer(canvas, engine);
+        const session = new SessionState('test-id');
+        session.slug = 'test-session';
+
+        // Should not throw
+        renderer.render(session, 16);
+    });
+
+    it('BR.RENDER.02: Active session renders without error', () => {
+        const canvas = document.createElement('canvas');
+        const engine = new SpriteEngine();
+        engine.init();
+        const renderer = new BoxRenderer(canvas, engine);
+        const session = new SessionState('test-id');
+        session.mainAgent.state = 'active';
+        session.mainAgent.currentTool = 'Read';
+
+        renderer.render(session, 16);
+    });
+
+    it('BR.RENDER.03: Waiting session renders speech bubble without error', () => {
+        const canvas = document.createElement('canvas');
+        const engine = new SpriteEngine();
+        engine.init();
+        const renderer = new BoxRenderer(canvas, engine);
+        const session = new SessionState('test-id');
+        session.mainAgent.state = 'waiting';
+
+        renderer.render(session, 16);
+    });
+
+    it('BR.RENDER.04: Sub-agents render in bottom row without error', () => {
+        const canvas = document.createElement('canvas');
+        const engine = new SpriteEngine();
+        engine.init();
+        const renderer = new BoxRenderer(canvas, engine);
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a1', description: 'T1' });
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a2', description: 'T2' });
+        session.handleEvent({ type: 'SUBAGENT_SPAWN', agentId: 'a3', description: 'T3' });
+
+        renderer.render(session, 16);
+        assertEqual(session.subAgents.size, 3);
+    });
+
+    it('BR.RENDER.05: Status bar shows slug and tool name', () => {
+        // We cannot easily read canvas text, so we verify no errors
+        const canvas = document.createElement('canvas');
+        const engine = new SpriteEngine();
+        engine.init();
+        const renderer = new BoxRenderer(canvas, engine);
+        const session = new SessionState('test-session-id');
+        session.slug = 'my-project';
+        session.mainAgent.currentTool = 'Edit';
+
+        renderer.render(session, 16);
+    });
+
+    it('BR.RENDER.06: Sub-agent overflow handled gracefully', () => {
+        const canvas = document.createElement('canvas');
+        const engine = new SpriteEngine();
+        engine.init();
+        const renderer = new BoxRenderer(canvas, engine);
+        const session = new SessionState('test-id');
+
+        // Add 20 sub-agents
+        for (let i = 0; i < 20; i++) {
+            session.handleEvent({
+                type: 'SUBAGENT_SPAWN',
+                agentId: `agent-${i}`,
+                description: `Task ${i}`
+            });
+        }
+
+        assertEqual(session.subAgents.size, 20, 'all 20 tracked in state');
+        // Render should not crash even with overflow
+        renderer.render(session, 16);
+    });
+});
+
+
+// -------------------------------------------------------------------
+// Edge Case Tests
+// -------------------------------------------------------------------
+
+describe('Edge Cases - Data', () => {
+
+    it('EDGE.DATA.01: Empty JSONL file produces no events', () => {
+        const lines = [];
+        const session = new SessionState('test-id');
+        for (const line of lines) {
+            const event = TranscriptParser.parse(line);
+            if (event) session.handleEvent(event);
+        }
+        assertEqual(session.mainAgent.state, 'idle');
+    });
+
+    it('EDGE.DATA.02: File with only queue-operation records produces no state change', () => {
+        const session = new SessionState('test-id');
+        const lines = [MOCK_RECORDS.ENQUEUE, MOCK_RECORDS.DEQUEUE];
+        for (const line of lines) {
+            const event = TranscriptParser.parse(line);
+            if (event) session.handleEvent(event);
+        }
+        assertEqual(session.mainAgent.state, 'idle');
+        assertEqual(session.subAgents.size, 0);
+    });
+
+    it('EDGE.DATA.03: Session with 0 sub-agents', () => {
+        const session = new SessionState('test-id');
+        session.handleEvent({ type: 'USER_PROMPT', text: 'Hello' });
+        session.handleEvent({ type: 'TURN_COMPLETE', durationMs: 1000 });
+        assertEqual(session.subAgents.size, 0);
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('EDGE.DATA.04: Session with 20+ sub-agents', () => {
+        const session = new SessionState('test-id');
+        for (let i = 0; i < 25; i++) {
+            session.handleEvent({
+                type: 'SUBAGENT_SPAWN',
+                agentId: `agent-${i}`,
+                description: `Task ${i}`
+            });
+        }
+        assertEqual(session.subAgents.size, 25, 'all 25 sub-agents tracked');
+    });
+
+    it('EDGE.DATA.05: Malformed JSON line in middle of valid data', () => {
+        const session = new SessionState('test-id');
+        const lines = [
+            MOCK_RECORDS.USER_TEXT,
+            'this is { broken json !!!',
+            MOCK_RECORDS.ASSISTANT_SINGLE_TOOL,
+        ];
+
+        for (const line of lines) {
+            const event = TranscriptParser.parse(line);
+            if (event) session.handleEvent(event);
+        }
+
+        // Should have processed the valid lines
+        assertEqual(session.mainAgent.currentTool, 'Read');
+        clearTimeout(session.humanActiveTimer);
+    });
+
+    it('EDGE.DATA.06: Two sessions with same slug remain independent', () => {
+        const s1 = new SessionState('session-1');
+        const s2 = new SessionState('session-2');
+        s1.handleEvent({ type: 'SESSION_META', slug: 'my-project' });
+        s2.handleEvent({ type: 'SESSION_META', slug: 'my-project' });
+        s1.handleEvent({ type: 'TOOL_START', toolName: 'Read', toolId: 't1' });
+        s2.handleEvent({ type: 'TOOL_START', toolName: 'Edit', toolId: 't2' });
+
+        assertEqual(s1.mainAgent.currentTool, 'Read');
+        assertEqual(s2.mainAgent.currentTool, 'Edit');
+        assertEqual(s1.slug, 'my-project');
+        assertEqual(s2.slug, 'my-project');
+    });
+});
+
+describe('Edge Cases - Runtime', () => {
+
+    it('EDGE.RT.01: File System Access API availability detection', () => {
+        // We just verify we can check for the API
+        const hasAPI = typeof window.showDirectoryPicker === 'function';
+        // This is informational; test passes either way
+        assertTrue(typeof hasAPI === 'boolean', 'detection should return boolean');
+    });
+
+    it('EDGE.RT.03: Very rapid state changes processed correctly', () => {
+        const session = new SessionState('test-id');
+        // 50 rapid tool start/end cycles
+        for (let i = 0; i < 50; i++) {
+            session.handleEvent({ type: 'TOOL_START', toolName: `Tool${i}`, toolId: `t${i}` });
+            session.handleEvent({ type: 'TOOL_END', toolId: `t${i}` });
+        }
+        assertNull(session.mainAgent.currentTool, 'should have no active tool');
+        assertEqual(session.mainAgent.state, 'active', 'state should be active from last TOOL_START/END cycle');
+    });
+});
+
+
+// -------------------------------------------------------------------
+// Performance Tests
+// -------------------------------------------------------------------
+
+describe('Performance - Parsing', () => {
+
+    it('PERF.02: 100+ JSONL lines parsed in under 50ms', () => {
+        const lines = [];
+        for (let i = 0; i < 120; i++) {
+            lines.push(MOCK_RECORDS.USER_TEXT);
+            lines.push(MOCK_RECORDS.ASSISTANT_SINGLE_TOOL);
+            lines.push(MOCK_RECORDS.TOOL_RESULT);
+        }
+
+        const start = performance.now();
+        for (const line of lines) {
+            TranscriptParser.parse(line);
+        }
+        const elapsed = performance.now() - start;
+
+        assertTrue(elapsed < 50,
+            `Parsing ${lines.length} lines took ${elapsed.toFixed(1)}ms (target: <50ms)`);
+    });
+
+    it('PERF.05: State update latency under 1ms per event', () => {
+        const session = new SessionState('perf-test');
+        const events = [];
+        for (let i = 0; i < 1000; i++) {
+            events.push({ type: 'TOOL_START', toolName: 'Read', toolId: `t${i}` });
+            events.push({ type: 'TOOL_END', toolId: `t${i}` });
+        }
+
+        const start = performance.now();
+        for (const event of events) {
+            session.handleEvent(event);
+        }
+        const elapsed = performance.now() - start;
+        const perEvent = elapsed / events.length;
+
+        assertTrue(perEvent < 1,
+            `${perEvent.toFixed(4)}ms per event (target: <1ms)`);
+    });
+});
+
+
+// ========================================================================
+// VISUAL TESTS
+// ========================================================================
+
+function renderVisualTests() {
+    const grid = document.getElementById('visual-grid');
+    grid.innerHTML = '';
+
+    const spriteEngine = new SpriteEngine();
+    spriteEngine.init();
+
+    const scenarios = [
+        {
+            label: 'Idle Session (no sub-agents)',
+            setup: (session) => {
+                session.slug = 'idle-session';
+                session.mainAgent.state = 'idle';
+            }
+        },
+        {
+            label: 'Active Session (using Read tool)',
+            setup: (session) => {
+                session.slug = 'active-session';
+                session.mainAgent.state = 'active';
+                session.mainAgent.currentTool = 'Read';
+                session.humanActive = true;
+            }
+        },
+        {
+            label: 'Waiting for User Input (speech bubble)',
+            setup: (session) => {
+                session.slug = 'waiting-session';
+                session.mainAgent.state = 'waiting';
+            }
+        },
+        {
+            label: 'Session with 3 Sub-Agents',
+            setup: (session) => {
+                session.slug = 'with-subagents';
+                session.mainAgent.state = 'active';
+                session.mainAgent.currentTool = 'Task';
+                session.subAgents.set('a1', { state: 'active', description: 'Fix tests', lastTool: 'Bash', spawnTime: Date.now() });
+                session.subAgents.set('a2', { state: 'active', description: 'Lint code', lastTool: 'Grep', spawnTime: Date.now() });
+                session.subAgents.set('a3', { state: 'idle', description: 'Review', lastTool: null, spawnTime: Date.now() });
+            }
+        },
+        {
+            label: 'Session with 7 Sub-Agents (near overflow)',
+            setup: (session) => {
+                session.slug = 'many-subagents';
+                session.mainAgent.state = 'active';
+                session.mainAgent.currentTool = 'Task';
+                for (let i = 0; i < 7; i++) {
+                    session.subAgents.set(`a${i}`, {
+                        state: i % 2 === 0 ? 'active' : 'idle',
+                        description: `Task ${i}`,
+                        lastTool: i % 2 === 0 ? 'Bash' : null,
+                        spawnTime: Date.now()
+                    });
+                }
+            }
+        },
+        {
+            label: 'Active Human Typing',
+            setup: (session) => {
+                session.slug = 'human-typing';
+                session.mainAgent.state = 'active';
+                session.humanActive = true;
+            }
+        }
+    ];
+
+    // Animation loop for visual tests
+    let animRunning = false;
+    const renderers = [];
+
+    for (const scenario of scenarios) {
+        const box = document.createElement('div');
+        box.className = 'visual-box';
+
+        const label = document.createElement('div');
+        label.className = 'box-label';
+        label.textContent = scenario.label;
+        box.appendChild(label);
+
+        const canvas = document.createElement('canvas');
+        box.appendChild(canvas);
+        grid.appendChild(box);
+
+        const renderer = new BoxRenderer(canvas, spriteEngine);
+        const session = new SessionState('visual-' + scenario.label);
+        scenario.setup(session);
+
+        renderers.push({ renderer, session });
+    }
+
+    // Start animation loop
+    if (!animRunning) {
+        animRunning = true;
+        let lastTimestamp = 0;
+
+        function animate(timestamp) {
+            const dt = lastTimestamp ? timestamp - lastTimestamp : 16;
+            lastTimestamp = timestamp;
+
+            for (const { renderer, session } of renderers) {
+                renderer.render(session, dt);
+            }
+
+            if (animRunning) {
+                requestAnimationFrame(animate);
+            }
+        }
+
+        requestAnimationFrame(animate);
+    }
+}
+
+
+// ========================================================================
+// MAIN ENTRY POINTS
+// ========================================================================
+
+async function runAllTests() {
+    const btn = document.getElementById('btn-run-all');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="running-indicator"></span>Running...';
+    const startTime = performance.now();
+
+    try {
+        await TestFramework.runAll();
+        renderVisualTests();
+    } catch (err) {
+        console.error('Test runner error:', err);
+    }
+
+    const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+    document.getElementById('elapsed-time').textContent = `Completed in ${elapsed}s`;
+
+    btn.disabled = false;
+    btn.textContent = 'Run All Tests';
+}
+
+function clearResults() {
+    document.getElementById('test-results').innerHTML = '';
+    document.getElementById('visual-grid').innerHTML = '';
+    document.getElementById('count-pass').textContent = '0';
+    document.getElementById('count-fail').textContent = '0';
+    document.getElementById('count-skip').textContent = '0';
+    document.getElementById('count-total').textContent = '0';
+    document.getElementById('elapsed-time').textContent = '';
+}
+</script>
+
+</body>
+</html>

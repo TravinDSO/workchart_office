@@ -1,0 +1,423 @@
+/* ============================================================
+   WorkChart Office — Styles
+   Dark theme, responsive grid layout for agent session boxes.
+   ============================================================ */
+
+/* ---------- Reset & Base ---------- */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+        Ubuntu, Cantarell, sans-serif;
+    background-color: #1a1a2e;
+    color: #e0e0e0;
+    overflow-x: hidden;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* ---------- Header ---------- */
+#app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 24px;
+    background-color: #16162a;
+    border-bottom: 1px solid #2a2a4a;
+    flex-shrink: 0;
+}
+
+#app-header h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.02em;
+}
+
+#controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* ---------- Project Filter Dropdown ---------- */
+#project-filter {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    color: #e0e0e0;
+    background-color: #0d4f7a;
+    border: 1px solid #1b6ca8;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23aaa'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+    min-width: 160px;
+}
+
+#project-filter:hover {
+    background-color: #1b6ca8;
+    border-color: #2a8cd4;
+}
+
+#project-filter:focus {
+    outline: none;
+    border-color: #2a8cd4;
+    box-shadow: 0 0 0 2px rgba(42, 140, 212, 0.3);
+}
+
+#project-filter option {
+    background-color: #16162a;
+    color: #e0e0e0;
+}
+
+/* ---------- Filtered-out session boxes ---------- */
+.session-box.project-hidden {
+    display: none;
+}
+
+/* ---------- Status Indicator ---------- */
+#status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.8rem;
+}
+
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #666666;
+    transition: background-color 0.3s;
+}
+
+.status-text {
+    color: #aaaaaa;
+    transition: color 0.3s;
+}
+
+/* Connected state */
+#status-indicator.connected .status-dot {
+    background-color: #00ff88;
+    box-shadow: 0 0 6px rgba(0, 255, 136, 0.5);
+}
+
+#status-indicator.connected .status-text {
+    color: #00ff88;
+}
+
+/* Disconnected state (default) */
+#status-indicator.disconnected .status-dot {
+    background-color: #666666;
+}
+
+#status-indicator.disconnected .status-text {
+    color: #aaaaaa;
+}
+
+/* ---------- Session Grid ---------- */
+#session-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 16px;
+    padding: 16px;
+    flex: 1;
+    align-content: start;
+}
+
+/* Empty state message — shown when grid is empty via JS */
+#session-grid:empty::before {
+    content: '';
+    /* Placeholder cleared by JS empty-state div */
+}
+
+.empty-state {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 20px;
+    color: #555577;
+    text-align: center;
+}
+
+.empty-state .empty-icon {
+    font-size: 3rem;
+    margin-bottom: 16px;
+    opacity: 0.4;
+}
+
+.empty-state .empty-title {
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+    color: #7777aa;
+}
+
+.empty-state .empty-subtitle {
+    font-size: 0.85rem;
+    color: #555577;
+}
+
+/* ---------- Session Box ---------- */
+.session-box {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    background-color: #1b6ca8;
+    transition: box-shadow 0.3s, opacity 0.5s;
+}
+
+.session-box:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Active session border glow */
+.session-box.active {
+    box-shadow: 0 2px 12px rgba(0, 255, 136, 0.15),
+                0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Waiting session pulsing border */
+.session-box.waiting {
+    animation: pulse-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+    0%, 100% {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+    50% {
+        box-shadow: 0 2px 16px rgba(255, 170, 0, 0.25),
+                    0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+}
+
+/* Completed/ended session */
+.session-box.completed {
+    opacity: 0.5;
+}
+
+/* ---------- Minimize / Restore button ---------- */
+.session-box .minimize-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+    color: #ccc;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 2;
+    opacity: 0;
+    transition: opacity 0.2s, background-color 0.2s;
+}
+
+.session-box:hover .minimize-btn {
+    opacity: 1;
+}
+
+.session-box .minimize-btn:hover {
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+}
+
+/* ---------- Minimized session box ---------- */
+.session-box.minimized {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    background-color: #16213a;
+    border: 1px solid #2a2a4a;
+    cursor: pointer;
+}
+
+.session-box.minimized canvas {
+    display: none;
+}
+
+.session-box.minimized .minimize-btn {
+    display: none;
+}
+
+.session-box.minimized .minimized-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: #aaa;
+}
+
+.session-box.minimized .minimized-label .restore-btn {
+    margin-left: auto;
+    padding: 2px 10px;
+    background: rgba(27, 108, 168, 0.5);
+    border: 1px solid #1b6ca8;
+    border-radius: 4px;
+    color: #ccc;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.session-box.minimized .minimized-label .restore-btn:hover {
+    background: rgba(27, 108, 168, 0.8);
+    color: #fff;
+}
+
+.session-box.minimized .minimized-label .status-pip {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.session-box.minimized .minimized-label .status-pip.pip-active {
+    background-color: #00ff88;
+    box-shadow: 0 0 4px rgba(0, 255, 136, 0.5);
+}
+
+.session-box.minimized .minimized-label .status-pip.pip-idle {
+    background-color: #666;
+}
+
+.session-box.minimized .minimized-label .status-pip.pip-waiting {
+    background-color: #ffaa00;
+    box-shadow: 0 0 4px rgba(255, 170, 0, 0.5);
+}
+
+/* Hide minimized-label when NOT minimized */
+.session-box .minimized-label {
+    display: none;
+}
+
+/* ---------- Stale (hidden) session ---------- */
+.session-box.stale {
+    display: none;
+}
+
+/* ---------- Canvas inside boxes ---------- */
+.session-box canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+/* ---------- Footer ---------- */
+#app-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 24px;
+    background-color: #16162a;
+    border-top: 1px solid #2a2a4a;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: #aaaaaa;
+    flex-shrink: 0;
+}
+
+#session-count {
+    color: #cccccc;
+}
+
+#poll-status {
+    color: #aaaaaa;
+}
+
+#poll-status.active {
+    color: #00ff88;
+}
+
+/* ---------- Responsive Adjustments ---------- */
+
+/* Narrow viewports (800px - 900px): single column */
+@media (max-width: 900px) {
+    #session-grid {
+        grid-template-columns: 1fr;
+        padding: 12px;
+        gap: 12px;
+    }
+
+    #app-header {
+        padding: 10px 16px;
+    }
+
+    #app-header h1 {
+        font-size: 1rem;
+    }
+
+    #project-filter {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+        min-width: 120px;
+    }
+}
+
+/* Medium viewports (901px - 1400px) */
+@media (min-width: 901px) and (max-width: 1400px) {
+    #session-grid {
+        grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    }
+}
+
+/* Wide viewports (1401px - 2560px) */
+@media (min-width: 1401px) and (max-width: 2560px) {
+    #session-grid {
+        grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+        gap: 20px;
+        padding: 20px;
+    }
+}
+
+/* Ultra-wide viewports (2561px - 3840px) */
+@media (min-width: 2561px) {
+    #session-grid {
+        grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+        gap: 24px;
+        padding: 24px;
+    }
+
+    #app-header {
+        padding: 16px 32px;
+    }
+
+    #app-header h1 {
+        font-size: 1.5rem;
+    }
+
+    #app-footer {
+        padding: 12px 32px;
+        font-size: 0.9rem;
+    }
+}

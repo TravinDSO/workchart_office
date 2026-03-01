@@ -1,0 +1,118 @@
+# WorkChart Office
+
+Real-time visual monitor for Claude Code agent sessions. Each active session appears as a pixel-art "work box" showing the human orchestrator, the main agent, and any sub-agents that spin up during execution.
+
+## Quick Start
+
+Requires Python 3.10+. No packages to install.
+
+```bash
+cd workchart_office
+python serve.py
+```
+
+Your browser opens automatically to **http://localhost:3200**. The server scans all projects under `~/.claude/projects/` and starts displaying active sessions. Use the project filter dropdown to focus on a specific project.
+
+### Options
+
+```bash
+python serve.py --port 8080    # Use a different port
+PORT=8080 python serve.py      # Or via environment variable
+```
+
+### Alternative: Node.js
+
+If you prefer Node.js (v18+):
+
+```bash
+node serve.js
+```
+
+Then open http://localhost:3200 manually.
+
+## What You See
+
+Each session box contains:
+
+| Element | Position | Description |
+|---------|----------|-------------|
+| Human (orchestrator) | Top-left | Animates when you send a prompt |
+| Main Agent (robot) | Top-right | Animates when the agent uses tools |
+| Sub-agents (brains) | Bottom row | Appear dynamically when `Task`/`Agent` tools are invoked |
+| Status bar | Bottom | Session name, current tool, sub-agent count |
+
+### Agent States
+
+- **Active** — Sprite animates, status shows current tool name
+- **Idle** — Sprite static, status shows "Idle"
+- **Waiting** — Speech bubble with "?" appears on the robot (agent asked a question)
+
+## Demo Mode
+
+When loaded as a `file://` URL (not through the server), the app shows 3 demo sessions with different states that cycle automatically. This is useful for verifying sprites and layout without live data.
+
+## Running Tests
+
+Visit http://localhost:3200/test.html while the server is running:
+
+1. Click **Run All Tests**
+2. Results appear inline — green for pass, red for fail
+
+The test harness covers the transcript parser, session state management, sprite engine, and box renderer (90 tests total).
+
+## Project Structure
+
+```
+workchart_office/
+├── serve.py                # Python server (recommended)
+├── serve.js                # Node.js server (alternative)
+├── index.html              # App entry point
+├── test.html               # Browser-based test harness (90 tests)
+├── css/
+│   └── styles.css          # Dark theme, responsive grid
+├── js/
+│   ├── app.js              # Main init, render loop, demo mode
+│   ├── boxRenderer.js      # Canvas rendering for each session box
+│   ├── fileReader.js       # HTTP API client for reading JSONL files
+│   ├── sessionManager.js   # Session state tracking and polling
+│   ├── spriteEngine.js     # Pixel-art sprites and animation
+│   └── transcriptParser.js # JSONL record parsing
+└── design/
+    ├── docs/               # Design documentation
+    │   ├── PRD.md
+    │   ├── ARCHITECTURE.md
+    │   ├── TECHNICAL_SPEC.md
+    │   ├── DATA_DICTIONARY.md
+    │   ├── VISUAL_DESIGN_SPEC.md
+    │   ├── IMPLEMENTATION_ROADMAP.md
+    │   ├── TEST_PLAN.md
+    │   └── BROWSER_MCP_INTEGRATION.md
+    ├── wireframes/
+    │   └── box-layout.md
+    └── reference/
+        └── example_oveview.png
+```
+
+## How It Works
+
+1. `serve.py` starts an HTTP server that serves the frontend and provides a JSON API
+2. The API reads Claude Code JSONL transcript files from `~/.claude/projects/<project-dir>/`
+3. Each `.jsonl` file = one session = one box on screen
+4. The browser polls the API every 2 seconds for new lines (read incrementally from last offset)
+5. JSONL records are parsed into state events (tool use, sub-agent spawn, turn complete, etc.)
+6. Canvas renders are driven by `requestAnimationFrame`, only re-drawing boxes with state changes
+
+## Server API
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/projects` | List all discovered project directories |
+| `GET /api/sessions?project=<name>` | List `.jsonl` files (all projects if `project` omitted) |
+| `GET /api/read?project=<name>&file=<name>&offset=<n>` | Read new lines from byte offset |
+| `GET /api/subagents?project=<name>&session=<id>` | List sub-agent files for a session |
+| `GET /*` | Serve static files |
+
+## Requirements
+
+- Python 3.10+ (no pip packages needed)
+- Any modern browser (Chrome, Edge, Firefox, Safari)
