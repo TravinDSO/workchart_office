@@ -62,6 +62,7 @@ let projectList = [];
 
 // DOM element references
 let sessionGrid;
+let minimizedTray;
 let sessionCountEl;
 let pollStatusEl;
 let statusIndicator;
@@ -74,6 +75,7 @@ let projectFilterEl;
 document.addEventListener('DOMContentLoaded', () => {
     // Grab DOM references
     sessionGrid = document.getElementById('session-grid');
+    minimizedTray = document.getElementById('minimized-tray');
     sessionCountEl = document.getElementById('session-count');
     pollStatusEl = document.getElementById('poll-status');
     statusIndicator = document.getElementById('status-indicator');
@@ -175,7 +177,7 @@ function handleProjectFilterChange() {
  * Apply the current project filter to all session boxes.
  */
 function applyProjectFilter() {
-    const boxes = sessionGrid.querySelectorAll('.session-box');
+    const boxes = document.querySelectorAll('.session-box');
     for (const box of boxes) {
         const project = box.dataset.project;
         if (!activeProjectFilter || project === activeProjectFilter) {
@@ -297,9 +299,9 @@ function createSessionBox(sessionId, project) {
  * Remove a session box from the DOM.
  */
 function removeSessionBox(sessionId) {
-    const box = sessionGrid.querySelector(`[data-session-id="${sessionId}"]`);
+    const box = document.querySelector(`[data-session-id="${sessionId}"]`);
     if (box) {
-        sessionGrid.removeChild(box);
+        box.parentNode.removeChild(box);
     }
     boxRenderers.delete(sessionId);
 }
@@ -308,7 +310,7 @@ function removeSessionBox(sessionId) {
  * Update the CSS class on a session box to reflect its state.
  */
 function updateSessionBoxClass(sessionId, session) {
-    const box = sessionGrid.querySelector(`[data-session-id="${sessionId}"]`);
+    const box = document.querySelector(`[data-session-id="${sessionId}"]`);
     if (!box) return;
 
     box.classList.remove('active', 'waiting', 'completed');
@@ -343,19 +345,21 @@ function updateSessionBoxClass(sessionId, session) {
 
 function minimizeSession(sessionId) {
     minimizedSessions.add(sessionId);
-    const box = sessionGrid.querySelector(`[data-session-id="${sessionId}"]`);
+    const box = document.querySelector(`[data-session-id="${sessionId}"]`);
     if (box) {
         box.classList.add('minimized');
         box.classList.remove('stale');
+        minimizedTray.appendChild(box);
     }
     updateSessionCount();
 }
 
 function restoreSession(sessionId) {
     minimizedSessions.delete(sessionId);
-    const box = sessionGrid.querySelector(`[data-session-id="${sessionId}"]`);
+    const box = document.querySelector(`[data-session-id="${sessionId}"]`);
     if (box) {
         box.classList.remove('minimized');
+        sessionGrid.appendChild(box);
     }
     updateSessionCount();
 }

@@ -395,8 +395,9 @@ export class SpriteEngine {
      * @param {number} x                      - Destination x (logical pixels).
      * @param {number} y                      - Destination y (logical pixels).
      * @param {number} dt                     - Delta time in ms since last frame.
+     * @param {number} [scale=2]               - Scale multiplier for rendering.
      */
-    draw(ctx, spriteName, animState, x, y, dt) {
+    draw(ctx, spriteName, animState, x, y, dt, scale = 2) {
         const key = `${spriteName}-${animState}`;
         const def = SPRITE_DEFS[spriteName];
         if (!def) return;
@@ -418,9 +419,6 @@ export class SpriteEngine {
 
         const cached = this.cache.get(`${key}-${anim.frame}`);
         if (cached) {
-            // Render at 2x for human / main-agent (32px -> 64px)
-            // and 2x for sub-agent (16px -> 32px)
-            const scale = 2;
             ctx.drawImage(cached, x, y, def.width * scale, def.height * scale);
         }
     }

@@ -140,6 +140,7 @@ body {
     padding: 16px;
     flex: 1;
     align-content: start;
+    align-items: start;
 }
 
 /* Empty state message — shown when grid is empty via JS */
@@ -184,6 +185,7 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     background-color: #1b6ca8;
     transition: box-shadow 0.3s, opacity 0.5s;
+    order: 0;
 }
 
 .session-box:hover {
@@ -256,6 +258,8 @@ body {
     background-color: #16213a;
     border: 1px solid #2a2a4a;
     cursor: pointer;
+    max-width: 320px;
+    flex-shrink: 0;
 }
 
 .session-box.minimized canvas {
@@ -331,6 +335,20 @@ body {
     height: auto;
     image-rendering: pixelated;
     image-rendering: crisp-edges;
+}
+
+/* ---------- Minimized Tray ---------- */
+#minimized-tray {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 16px;
+    background-color: #16162a;
+    border-top: 1px solid #2a2a4a;
+}
+
+#minimized-tray:empty {
+    display: none;
 }
 
 /* ---------- Footer ---------- */

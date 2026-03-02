@@ -2,14 +2,13 @@
  * boxRenderer.js — Session Box Canvas Rendering
  *
  * Each session is displayed as a self-contained canvas "box" with:
- *   - Steel-blue background with dark border
- *   - Human sprite (top-left) and Main Agent/Robot sprite (top-right)
- *   - Animated dashed connection line between them
- *   - Sub-agent sprites in a bottom row
+ *   - Left column: Human sprite (top) → vertical connection → Robot sprite (bottom)
+ *   - Right column: Sub-agents listed vertically with labels
  *   - Speech bubble "?" when the agent is waiting for user input
  *   - Status bar at the bottom with session info
  *
- * Logical canvas size: 400 x 250 pixels.
+ * Logical canvas width: 400 pixels (fixed).
+ * Logical canvas height: dynamic, grows with sub-agent count.
  * Rendered at devicePixelRatio for sharp display.
  */
 
@@ -45,32 +44,69 @@ export class BoxRenderer {
 
         /** Logical dimensions (CSS pixels) */
         this.logicalWidth = 400;
-        this.logicalHeight = 250;
+        this.logicalHeight = 180; // minimum height
 
         /** Animated dash offset for the connection line */
         this._dashOffset = 0;
 
         // Set up canvas for sharp rendering at device pixel ratio
-        this._setupCanvas();
+        this._setupCanvas(this.logicalHeight);
+    }
+
+    // -----------------------------------------------------------------------
+    // Dynamic height calculation
+    // -----------------------------------------------------------------------
+
+    /**
+     * Compute the logical canvas height based on sub-agent count.
+     * Left column is fixed (~117px for compact user + connection + bot + label).
+     * Right column grows: 15 + visibleSubAgents * 45.
+     * Height = max(leftCol, rightCol) + 10 (gap) + 30 (status bar).
+     * Minimum: 160px.
+     */
+    _computeLogicalHeight(session) {
+        const leftColBottom = 139;
+
+        let visibleCount = 0;
+        for (const [, sub] of session.subAgents) {
+            if (sub.state !== 'completed') visibleCount++;
+        }
+
+        const rightColBottom = 15 + visibleCount * 45;
+        const contentHeight = Math.max(leftColBottom, rightColBottom);
+        return Math.max(180, contentHeight + 10 + 30);
     }
 
     // -----------------------------------------------------------------------
     // Canvas setup
     // -----------------------------------------------------------------------
 
-    _setupCanvas() {
+    /**
+     * Set up or resize the canvas. Only resizes when dimensions actually change
+     * to avoid flicker.
+     */
+    _setupCanvas(height) {
         const dpr = window.devicePixelRatio || 1;
+        const newW = this.logicalWidth * dpr;
+        const newH = height * dpr;
+
+        if (this.canvas.width === newW && this.canvas.height === newH) {
+            return; // no change needed
+        }
+
+        this.logicalHeight = height;
 
         // Set the actual pixel dimensions of the canvas
-        this.canvas.width = this.logicalWidth * dpr;
-        this.canvas.height = this.logicalHeight * dpr;
+        this.canvas.width = newW;
+        this.canvas.height = newH;
 
         // Set the CSS display size
         this.canvas.style.width = `${this.logicalWidth}px`;
-        this.canvas.style.height = `${this.logicalHeight}px`;
+        this.canvas.style.height = `${height}px`;
 
         // Scale the context so drawing commands use logical coordinates
         const ctx = this.canvas.getContext('2d');
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.scale(dpr, dpr);
     }
 
@@ -85,6 +121,10 @@ export class BoxRenderer {
      * @param {number} dt - Delta time in milliseconds since last frame.
      */
     render(session, dt) {
+        // 0. Compute dynamic height and resize canvas if needed
+        const height = this._computeLogicalHeight(session);
+        this._setupCanvas(height);
+
         const ctx = this.canvas.getContext('2d');
 
         // Temporarily reset scale to clear properly
@@ -103,33 +143,36 @@ export class BoxRenderer {
         ctx.lineWidth = 2;
         ctx.strokeRect(1, 1, this.logicalWidth - 2, this.logicalHeight - 2);
 
-        // 3. Human sprite (top-left, 64x64 rendered from 32x32 at 2x)
+        // 3. Human sprite (top of left column, 32x32 at scale=1)
         const humanState = session.humanActive ? 'active' : 'idle';
-        this.spriteEngine.draw(ctx, 'human', humanState, 30, 15, dt);
+        this.spriteEngine.draw(ctx, 'human', humanState, 34, 10, dt, 1);
 
         // Label: "User" below the human sprite
-        this._drawSpriteLabel(ctx, 'User', 62, 83);
+        this._drawSpriteLabel(ctx, 'User', 50, 45);
 
-        // 4. Main Agent / Robot sprite (top-right, 64x64 rendered)
-        const agentAnimState = session.mainAgent.state === 'waiting' ? 'idle' :
-                               session.mainAgent.state === 'active' ? 'active' : 'idle';
-        this.spriteEngine.draw(ctx, 'main-agent', agentAnimState, 280, 15, dt);
-
-        // Label: "Optimus Prime" below the main agent sprite
-        this._drawSpriteLabel(ctx, 'Optimus Prime', 312, 83);
-
-        // 5. Connection line between human and agent
+        // 4. Vertical connection line from human down to bot
         this._drawConnection(ctx, session.mainAgent.state, dt);
 
-        // 6. Sub-agent sprites in bottom row
-        this._drawSubAgents(ctx, session, dt);
+        // 5. Main Agent / Robot sprite (below connection, left column, 32x32 at scale=1)
+        const agentAnimState = session.mainAgent.state === 'waiting' ? 'idle' :
+                               session.mainAgent.state === 'active' ? 'active' : 'idle';
+        this.spriteEngine.draw(ctx, 'main-agent', agentAnimState, 34, 92, dt, 1);
 
-        // 7. Speech bubble if agent is waiting
+        // Label: "Optimus Prime" below the main agent sprite
+        this._drawSpriteLabel(ctx, 'Optimus Prime', 50, 127);
+
+        // 6. Speech bubble near bot when waiting
         if (session.mainAgent.state === 'waiting') {
-            this._drawSpeechBubble(ctx, 310, 5, '?');
+            this._drawSpeechBubble(ctx, 70, 62, '?');
         }
 
-        // 8. Status bar at the bottom
+        // 7. Vertical divider between left and right columns
+        this._drawDivider(ctx);
+
+        // 8. Sub-agent sprites in right column (vertical list)
+        this._drawSubAgents(ctx, session, dt);
+
+        // 9. Status bar at the bottom
         this._drawStatusBar(ctx, session);
     }
 
@@ -138,18 +181,18 @@ export class BoxRenderer {
     // -----------------------------------------------------------------------
 
     /**
-     * Draw the dashed connection line between human and agent.
+     * Draw the dashed vertical connection line between human and agent.
      * Animates when the agent is active, pulses when waiting.
      */
     _drawConnection(ctx, agentState, dt) {
-        const startX = 94;  // Right edge of human sprite area
-        const endX = 280;   // Left edge of agent sprite area
-        const y = 47;       // Vertical center of sprites
+        const x = 50;       // Center of left column
+        const startY = 57;  // Below human label
+        const endY = 90;    // Top of bot sprite
 
         ctx.save();
 
         if (agentState === 'active') {
-            // Animated solid-ish dashes flowing left-to-right
+            // Animated dashes flowing top-to-bottom
             ctx.strokeStyle = '#00ff88';
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 4]);
@@ -169,18 +212,18 @@ export class BoxRenderer {
         }
 
         ctx.beginPath();
-        ctx.moveTo(startX, y);
-        ctx.lineTo(endX, y);
+        ctx.moveTo(x, startY);
+        ctx.lineTo(x, endY);
         ctx.stroke();
 
-        // Draw an arrowhead at the agent end when active
+        // Draw a downward arrowhead at the bot end when active
         if (agentState === 'active') {
             ctx.setLineDash([]);
             ctx.fillStyle = '#00ff88';
             ctx.beginPath();
-            ctx.moveTo(endX, y);
-            ctx.lineTo(endX - 8, y - 4);
-            ctx.lineTo(endX - 8, y + 4);
+            ctx.moveTo(x, endY);
+            ctx.lineTo(x - 4, endY - 8);
+            ctx.lineTo(x + 4, endY - 8);
             ctx.closePath();
             ctx.fill();
         }
@@ -189,58 +232,55 @@ export class BoxRenderer {
     }
 
     // -----------------------------------------------------------------------
+    // Vertical divider
+    // -----------------------------------------------------------------------
+
+    /**
+     * Draw a subtle vertical separator between left and right columns.
+     */
+    _drawDivider(ctx) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(100, 10);
+        ctx.lineTo(100, this.logicalHeight - 40);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // -----------------------------------------------------------------------
     // Sub-agents
     // -----------------------------------------------------------------------
 
     _drawSubAgents(ctx, session, dt) {
-        const baseY = 140;
-        const minX = 20;
-        const maxX = 380;
-        const availableWidth = maxX - minX;
-        const spriteW = 32; // 16px at 2x
+        const baseX = 110;
+        const baseY = 15;
+        const rowHeight = 45;
+        const spriteSize = 32; // 16px at 2x
+        const labelX = 148;
+        const maxLabelLen = 40;
 
-        // Collect visible sub-agents first so we can calculate layout
+        // Collect visible sub-agents
         const visible = [];
         for (const [, sub] of session.subAgents) {
             if (sub.state !== 'completed') visible.push(sub);
         }
         if (visible.length === 0) return;
 
-        // Calculate spacing: spread evenly, but cap at a comfortable max
-        const maxSpacing = 90;
-        const minSpacing = 45;
-        let spacing;
-        if (visible.length === 1) {
-            spacing = 0; // single agent, no spacing needed
-        } else {
-            spacing = Math.min(maxSpacing, Math.max(minSpacing,
-                Math.floor(availableWidth / visible.length)));
-        }
-
-        // Calculate max label chars based on available space per agent
-        const labelCharsPerPx = 0.14; // ~7px per char at 9px monospace
-        const availPerAgent = visible.length === 1 ? availableWidth : spacing;
-        const maxLabelLen = Math.max(5, Math.floor(availPerAgent * labelCharsPerPx));
-
-        // Center the row if it doesn't fill the full width
-        const totalWidth = visible.length === 1 ? spriteW : (visible.length - 1) * spacing + spriteW;
-        const startX = Math.max(minX, Math.floor((this.logicalWidth - totalWidth) / 2));
-
         for (let i = 0; i < visible.length; i++) {
             const sub = visible[i];
-            const x = startX + i * spacing;
-
-            if (x + spriteW > maxX + 10) break; // safety overflow guard
+            const y = baseY + i * rowHeight;
 
             const subState = sub.state === 'active' ? 'active' : 'idle';
-            this.spriteEngine.draw(ctx, 'sub-agent', subState, x, baseY, dt);
+            this.spriteEngine.draw(ctx, 'sub-agent', subState, baseX, y, dt);
 
-            // Label below the sub-agent sprite
+            // Label to the right of the sub-agent sprite
             const label = sub.description || 'agent';
             const truncated = label.length > maxLabelLen
                 ? label.substring(0, maxLabelLen) + '..'
                 : label;
-            this._drawSpriteLabel(ctx, truncated, x + spriteW / 2, baseY + 35, 9);
+            this._drawSubAgentLabel(ctx, truncated, labelX, y + 16);
         }
     }
 
@@ -267,12 +307,25 @@ export class BoxRenderer {
         ctx.restore();
     }
 
+    /**
+     * Draw a left-aligned label for a sub-agent in the right column.
+     */
+    _drawSubAgentLabel(ctx, text, x, y) {
+        ctx.save();
+        ctx.font = 'bold 9px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+        ctx.fillText(text, x, y);
+        ctx.restore();
+    }
+
     // -----------------------------------------------------------------------
     // Speech bubble
     // -----------------------------------------------------------------------
 
     /**
-     * Draw a speech bubble with text above the agent sprite.
+     * Draw a speech bubble with text near the agent sprite.
      */
     _drawSpeechBubble(ctx, x, y, text) {
         const bubbleWidth = 28;
@@ -331,8 +384,8 @@ export class BoxRenderer {
      * Draw the semi-transparent status bar at the bottom of the box.
      */
     _drawStatusBar(ctx, session) {
-        const barY = 220;
         const barHeight = 30;
+        const barY = this.logicalHeight - barHeight;
 
         // Semi-transparent background
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
