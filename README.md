@@ -13,7 +13,7 @@ python serve.py            # Python (recommended)
 node serve.js              # Node.js (alternative)
 ```
 
-Your browser opens automatically to **http://localhost:3200**. The server scans all projects under `~/.claude/projects/` and starts displaying active sessions. Use the project filter dropdown to focus on a specific project.
+Open **http://localhost:3200** in your browser. The server scans all projects under `~/.claude/projects/` and starts displaying active sessions. Use the project filter dropdown to focus on a specific project.
 
 Works on **Windows**, **macOS**, and **Linux**.
 
@@ -41,14 +41,15 @@ All fields are optional. Tilde (`~`) expansion is supported in `projectsPath`. C
 
 ![WorkChart Office in action](interface.png)
 
-Each session box contains:
+Each session box is split into two columns:
 
 | Element | Position | Description |
 |---------|----------|-------------|
-| Human (orchestrator) | Top-left | Animates when you send a prompt |
-| Main Agent (robot) | Top-right | Animates when the agent uses tools |
-| Sub-agents (brains) | Bottom row | Appear dynamically when `Task`/`Agent` tools are invoked |
-| Status bar | Bottom | Session name, current tool, sub-agent count |
+| Human (orchestrator) | Left column, top | Animates when you send a prompt |
+| Connection line | Left column, middle | Animated dashed line linking human to agent |
+| Main Agent (robot) | Left column, bottom | Animates when the agent uses tools |
+| Sub-agents (brains) | Right column, vertical list | Appear dynamically when `Task`/`Agent` tools are invoked |
+| Status bar | Bottom, full width | Project label, session name, state indicator |
 
 ### Agent States
 
@@ -56,9 +57,9 @@ Each session box contains:
 - **Idle** — Sprite static, status shows "Idle"
 - **Waiting** — Speech bubble with "?" appears on the robot (agent asked a question)
 
-## Demo Mode
+## No Sessions State
 
-When loaded as a `file://` URL (not through the server), the app shows 3 demo sessions with different states that cycle automatically. This is useful for verifying sprites and layout without live data.
+When the server is running but no active Claude Code sessions are found, a "No sessions found" notification is displayed. Sessions appear automatically as Claude Code activity is detected.
 
 ## Running Tests
 
@@ -80,8 +81,9 @@ workchart_office/
 ├── css/
 │   └── styles.css          # Dark theme, responsive grid
 ├── js/
-│   ├── app.js              # Main init, render loop, demo mode
+│   ├── app.js              # Main init, render loop, session lifecycle
 │   ├── boxRenderer.js      # Canvas rendering for each session box
+│   ├── detailPanel.js      # Detail panel for inspecting session elements
 │   ├── fileReader.js       # HTTP API client for reading JSONL files
 │   ├── sessionManager.js   # Session state tracking and polling
 │   ├── spriteEngine.js     # Pixel-art sprites and animation
