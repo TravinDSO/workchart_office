@@ -20,6 +20,12 @@ export class DetailPanel {
         /** @type {HTMLElement} */
         this._logEl = null;
 
+        /** @type {HTMLElement} */
+        this._actionsEl = null;
+
+        /** Cache key for the last rendered actions to avoid re-rendering every frame */
+        this._actionsKey = '';
+
         /** @type {string|null} */
         this._sessionId = null;
 
@@ -71,6 +77,11 @@ export class DetailPanel {
         this._bodyEl.className = 'dp-body';
         aside.appendChild(this._bodyEl);
 
+        // Actions row (between body and log)
+        this._actionsEl = document.createElement('div');
+        this._actionsEl.className = 'dp-actions';
+        aside.appendChild(this._actionsEl);
+
         // Log section
         const logHeader = document.createElement('div');
         logHeader.className = 'dp-log-header';
@@ -103,6 +114,7 @@ export class DetailPanel {
         this._targetId = targetId;
         this._fieldCache = {};
         this._logCache = { len: -1 };
+        this._actionsKey = '';
         this._render(session);
         this.el.classList.add('visible');
     }
@@ -126,6 +138,7 @@ export class DetailPanel {
         this._targetId = null;
         this._fieldCache = {};
         this._logCache = { len: -1 };
+        this._actionsKey = '';
     }
 
     /** @returns {boolean} */
@@ -158,6 +171,7 @@ export class DetailPanel {
 
     _renderHuman(session) {
         this._setTitle('Human');
+        this._setActions([]);
         const status = session.humanActive ? 'active' : 'idle';
         const sessionName = session.customTitle || session.slug || session.sessionId.substring(0, 16);
         const project = session.projectLabel || session.project || '—';
@@ -185,17 +199,38 @@ export class DetailPanel {
             ? `${activeCount} active / ${idleCount} idle`
             : 'none';
         const sessionName = session.customTitle || session.slug || session.sessionId.substring(0, 16);
+        const spawned = session.createdTime ? DetailPanel.formatAge(session.createdTime) : '—';
+        const lastActivity = session.lastDataTime ? DetailPanel.formatAge(session.lastDataTime) : '—';
 
         this._setFields([
+            { label: 'Spawned', value: spawned },
+            { label: 'Last Activity', value: lastActivity },
             { label: 'State', value: state, stateClass: state },
             { label: 'Current Tool', value: tool },
             { label: 'Sub-agents', value: subSummary },
             { label: 'Session', value: sessionName },
         ]);
+
+        this._setActions([
+            {
+                label: 'Open Folder',
+                className: 'dp-action-btn dp-action-open',
+                title: 'Open session directory in file explorer',
+                onClick: () => this._openFolder(session),
+            },
+            {
+                label: 'Delete Session',
+                className: 'dp-action-btn dp-action-delete',
+                title: 'Permanently delete this session',
+                onClick: () => this._showDeleteConfirm(session),
+            },
+        ]);
+
         this._renderLog(session.mainAgentLog || []);
     }
 
     _renderSubAgent(session) {
+        this._setActions([]);
         const sub = session.subAgents.get(this._targetId);
         if (!sub) {
             this._setTitle('Sub-Agent');
@@ -314,6 +349,166 @@ export class DetailPanel {
 
         // Auto-scroll to top (newest)
         this._logEl.scrollTop = 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // Actions
+    // -----------------------------------------------------------------------
+
+    /**
+     * Render action buttons into the actions row.
+     * Caches by label key to avoid re-rendering every frame.
+     *
+     * @param {Array<{label: string, className: string, onClick: function, title: string}>} actions
+     */
+    _setActions(actions) {
+        const key = actions.map(a => a.label).join('|');
+        if (this._actionsKey === key) return;
+        this._actionsKey = key;
+
+        this._actionsEl.innerHTML = '';
+        if (actions.length === 0) {
+            this._actionsEl.style.display = 'none';
+            return;
+        }
+        this._actionsEl.style.display = '';
+
+        for (const action of actions) {
+            const btn = document.createElement('button');
+            btn.className = action.className;
+            btn.textContent = action.label;
+            btn.title = action.title;
+            btn.addEventListener('click', action.onClick);
+            this._actionsEl.appendChild(btn);
+        }
+    }
+
+    /**
+     * Open the session's project folder in the OS file explorer.
+     */
+    async _openFolder(session) {
+        if (!session.project) return;
+        try {
+            await fetch('/api/open-folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project: session.project,
+                    session: session.sessionId,
+                }),
+            });
+        } catch (err) {
+            console.error('Failed to open folder:', err);
+        }
+    }
+
+    /**
+     * Show a confirmation modal for deleting a session.
+     */
+    _showDeleteConfirm(session) {
+        const sessionName = session.customTitle || session.slug || session.sessionId.substring(0, 16);
+
+        // Overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'dp-modal-overlay';
+
+        // Modal card
+        const modal = document.createElement('div');
+        modal.className = 'dp-modal';
+
+        const title = document.createElement('h3');
+        title.className = 'dp-modal-title';
+        title.textContent = 'Delete this session?';
+        modal.appendChild(title);
+
+        const warning = document.createElement('p');
+        warning.className = 'dp-modal-warning';
+        warning.textContent = 'This will permanently delete the session transcript and all sub-agent data. This action cannot be undone.';
+        modal.appendChild(warning);
+
+        const nameBox = document.createElement('div');
+        nameBox.className = 'dp-modal-name';
+        nameBox.textContent = sessionName;
+        modal.appendChild(nameBox);
+
+        const prompt = document.createElement('p');
+        prompt.className = 'dp-modal-prompt';
+        prompt.innerHTML = `To confirm, type "<strong>${sessionName}</strong>" below:`;
+        modal.appendChild(prompt);
+
+        const input = document.createElement('input');
+        input.className = 'dp-modal-input';
+        input.type = 'text';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        modal.appendChild(input);
+
+        const btnRow = document.createElement('div');
+        btnRow.className = 'dp-modal-buttons';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'dp-modal-cancel';
+        cancelBtn.textContent = 'Cancel';
+        btnRow.appendChild(cancelBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'dp-modal-delete';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.disabled = true;
+        btnRow.appendChild(deleteBtn);
+
+        modal.appendChild(btnRow);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Focus the input
+        requestAnimationFrame(() => input.focus());
+
+        // Enable/disable delete button based on input
+        input.addEventListener('input', () => {
+            deleteBtn.disabled = input.value !== sessionName;
+        });
+
+        const closeModal = () => {
+            overlay.remove();
+        };
+
+        cancelBtn.addEventListener('click', closeModal);
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) closeModal();
+        });
+
+        const onKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', onKeyDown);
+            }
+        };
+        document.addEventListener('keydown', onKeyDown);
+
+        deleteBtn.addEventListener('click', async () => {
+            deleteBtn.disabled = true;
+            deleteBtn.textContent = 'Deleting...';
+            try {
+                await fetch('/api/delete-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        project: session.project,
+                        session: session.sessionId,
+                    }),
+                });
+                document.dispatchEvent(new CustomEvent('session-deleted', {
+                    detail: { sessionId: session.sessionId },
+                }));
+                this.hide();
+            } catch (err) {
+                console.error('Failed to delete session:', err);
+            } finally {
+                closeModal();
+                document.removeEventListener('keydown', onKeyDown);
+            }
+        });
     }
 
     // -----------------------------------------------------------------------

@@ -74,7 +74,7 @@ export class BoxRenderer {
      * Minimum: 160px.
      */
     _computeLogicalHeight(session) {
-        const leftColBottom = 139;
+        const leftColBottom = this.showAllSubAgents ? 152 : 139;
 
         let visibleCount = 0;
         for (const [, sub] of session.subAgents) {
@@ -178,6 +178,14 @@ export class BoxRenderer {
 
         // Label: "Optimus Prime" below the main agent sprite
         this._drawSpriteLabel(ctx, 'Optimus Prime', 50, 127);
+
+        // Elapsed time label below "Optimus Prime" when showAll is active
+        if (this.showAllSubAgents && session.lastDataTime) {
+            const elapsedMs = Date.now() - session.lastDataTime;
+            const elapsed = this._formatElapsed(elapsedMs);
+            const color = elapsedMs > 24 * 60 * 60 * 1000 ? '#ff4444' : 'rgba(255, 255, 255, 0.45)';
+            this._drawElapsedLabel(ctx, elapsed, 50, 139, color);
+        }
 
         // 6. Speech bubble near bot when waiting
         if (session.mainAgent.state === 'waiting') {
@@ -467,6 +475,37 @@ export class BoxRenderer {
         ctx.shadowOffsetY = 1;
         ctx.shadowBlur = 3;
         ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.fillText(text, cx, y);
+        ctx.restore();
+    }
+
+    /**
+     * Format an elapsed time in ms to a human-friendly string.
+     */
+    _formatElapsed(ms) {
+        const seconds = Math.floor(ms / 1000);
+        if (seconds < 60) return 'just now';
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        return `${days}d ago`;
+    }
+
+    /**
+     * Draw a dimmed elapsed-time label centered below the main agent name.
+     */
+    _drawElapsedLabel(ctx, text, cx, y, color = 'rgba(255, 255, 255, 0.45)') {
+        ctx.save();
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 1;
+        ctx.shadowBlur = 3;
+        ctx.fillStyle = color;
         ctx.fillText(text, cx, y);
         ctx.restore();
     }

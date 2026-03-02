@@ -24,8 +24,11 @@ No external dependencies — uses only the Python standard library.
 import http.server
 import json
 import os
+import platform
 import re
+import shutil
 import socketserver
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -144,7 +147,7 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
@@ -307,6 +310,104 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(200, {"files": files})
         except Exception as e:
             self.send_json(500, {"error": f"Failed to list sub-agents: {e}"})
+
+    # -- POST routing -----------------------------------------------------
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # Read JSON body
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > 0:
+            raw = self.rfile.read(content_length)
+            try:
+                body = json.loads(raw)
+            except json.JSONDecodeError:
+                return self.send_json(400, {"error": "Invalid JSON body."})
+        else:
+            body = {}
+
+        if path == "/api/open-folder":
+            return self.handle_open_folder(body)
+        if path == "/api/delete-session":
+            return self.handle_delete_session(body)
+
+        self.send_json(404, {"error": "Not found."})
+
+    # -- API: POST /api/open-folder ---------------------------------------
+
+    def handle_open_folder(self, body: dict):
+        project_name = body.get("project")
+        session_id = body.get("session")
+
+        if not project_name:
+            return self.send_json(400, {"error": "Missing 'project' parameter."})
+
+        proj_dir = self._resolve_project_dir(project_name)
+        if not proj_dir:
+            return self.send_json(404, {"error": "Project not found."})
+
+        # Try session subdirectory first, fall back to project dir
+        target = proj_dir
+        if session_id:
+            sanitized = os.path.basename(session_id)
+            session_dir = proj_dir / sanitized
+            if session_dir.is_dir():
+                target = session_dir
+
+        try:
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(str(target))
+            elif system == "Darwin":
+                subprocess.Popen(["open", str(target)])
+            else:
+                subprocess.Popen(["xdg-open", str(target)])
+            self.send_json(200, {"ok": True, "path": str(target)})
+        except Exception as e:
+            self.send_json(500, {"error": f"Failed to open folder: {e}"})
+
+    # -- API: POST /api/delete-session ------------------------------------
+
+    def handle_delete_session(self, body: dict):
+        project_name = body.get("project")
+        session_id = body.get("session")
+
+        if not project_name:
+            return self.send_json(400, {"error": "Missing 'project' parameter."})
+        if not session_id:
+            return self.send_json(400, {"error": "Missing 'session' parameter."})
+
+        proj_dir = self._resolve_project_dir(project_name)
+        if not proj_dir:
+            return self.send_json(404, {"error": "Project not found."})
+
+        sanitized = os.path.basename(session_id)
+        jsonl_path = proj_dir / f"{sanitized}.jsonl"
+        session_dir = proj_dir / sanitized
+
+        deleted_jsonl = False
+        deleted_dir = False
+
+        try:
+            if jsonl_path.is_file():
+                os.remove(jsonl_path)
+                deleted_jsonl = True
+        except Exception as e:
+            return self.send_json(500, {"error": f"Failed to delete JSONL file: {e}"})
+
+        try:
+            if session_dir.is_dir():
+                shutil.rmtree(session_dir)
+                deleted_dir = True
+        except Exception as e:
+            return self.send_json(500, {"error": f"Failed to delete session directory: {e}"})
+
+        self.send_json(200, {
+            "ok": True,
+            "deleted": {"jsonl": deleted_jsonl, "directory": deleted_dir},
+        })
 
     # -- Static files -----------------------------------------------------
 

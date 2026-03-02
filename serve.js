@@ -34,6 +34,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { exec } = require('child_process');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -173,7 +174,7 @@ function resolveProjectDir(projectName) {
 const server = http.createServer((req, res) => {
     // Add CORS headers to all responses
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     // Handle preflight
@@ -185,22 +186,39 @@ const server = http.createServer((req, res) => {
 
     const url = new URL(req.url, `http://${req.headers.host}`);
 
-    // Route API endpoints
-    if (url.pathname === '/api/projects') {
-        return handleListProjects(req, res);
-    }
-    if (url.pathname === '/api/sessions') {
-        return handleListSessions(req, res, url);
-    }
-    if (url.pathname === '/api/read') {
-        return handleReadFile(req, res, url);
-    }
-    if (url.pathname === '/api/subagents') {
-        return handleListSubAgents(req, res, url);
+    // Route API endpoints (GET)
+    if (req.method === 'GET') {
+        if (url.pathname === '/api/projects') {
+            return handleListProjects(req, res);
+        }
+        if (url.pathname === '/api/sessions') {
+            return handleListSessions(req, res, url);
+        }
+        if (url.pathname === '/api/read') {
+            return handleReadFile(req, res, url);
+        }
+        if (url.pathname === '/api/subagents') {
+            return handleListSubAgents(req, res, url);
+        }
+
+        // Serve static files
+        return handleStaticFile(req, res, url);
     }
 
-    // Serve static files
-    return handleStaticFile(req, res, url);
+    // Route API endpoints (POST)
+    if (req.method === 'POST') {
+        return collectBody(req, (body) => {
+            if (url.pathname === '/api/open-folder') {
+                return handleOpenFolder(req, res, body);
+            }
+            if (url.pathname === '/api/delete-session') {
+                return handleDeleteSession(req, res, body);
+            }
+            sendJson(res, 404, { error: 'Not found.' });
+        });
+    }
+
+    sendText(res, 405, 'Method not allowed');
 });
 
 // ---------------------------------------------------------------------------
@@ -389,6 +407,129 @@ function handleListSubAgents(req, res, url) {
     } catch (err) {
         sendJson(res, 500, { error: `Failed to list sub-agents: ${err.message}` });
     }
+}
+
+// ---------------------------------------------------------------------------
+// POST body collection
+// ---------------------------------------------------------------------------
+
+/**
+ * Collect the request body and parse as JSON.
+ * @param {http.IncomingMessage} req
+ * @param {function(object): void} callback
+ */
+function collectBody(req, callback) {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+        try {
+            const body = chunks.length > 0
+                ? JSON.parse(Buffer.concat(chunks).toString('utf-8'))
+                : {};
+            callback(body);
+        } catch {
+            // Invalid JSON — pass empty body; handlers will reject with
+            // "Missing parameter" errors as appropriate.
+            callback({});
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// API: POST /api/open-folder
+// ---------------------------------------------------------------------------
+
+function handleOpenFolder(req, res, body) {
+    const projectName = body.project;
+    const sessionId = body.session;
+
+    if (!projectName) {
+        return sendJson(res, 400, { error: "Missing 'project' parameter." });
+    }
+
+    const projDir = resolveProjectDir(projectName);
+    if (!projDir) {
+        return sendJson(res, 404, { error: 'Project not found.' });
+    }
+
+    // Try session subdirectory first, fall back to project dir
+    let target = projDir;
+    if (sessionId) {
+        const sanitized = path.basename(sessionId);
+        const sessionDir = path.join(projDir, sanitized);
+        try {
+            if (fs.statSync(sessionDir).isDirectory()) {
+                target = sessionDir;
+            }
+        } catch {
+            // Session subdir doesn't exist — use project dir
+        }
+    }
+
+    try {
+        const plat = process.platform;
+        if (plat === 'win32') {
+            exec(`explorer "${target}"`);
+        } else if (plat === 'darwin') {
+            exec(`open "${target}"`);
+        } else {
+            exec(`xdg-open "${target}"`);
+        }
+        sendJson(res, 200, { ok: true, path: target });
+    } catch (err) {
+        sendJson(res, 500, { error: `Failed to open folder: ${err.message}` });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// API: POST /api/delete-session
+// ---------------------------------------------------------------------------
+
+function handleDeleteSession(req, res, body) {
+    const projectName = body.project;
+    const sessionId = body.session;
+
+    if (!projectName) {
+        return sendJson(res, 400, { error: "Missing 'project' parameter." });
+    }
+    if (!sessionId) {
+        return sendJson(res, 400, { error: "Missing 'session' parameter." });
+    }
+
+    const projDir = resolveProjectDir(projectName);
+    if (!projDir) {
+        return sendJson(res, 404, { error: 'Project not found.' });
+    }
+
+    const sanitized = path.basename(sessionId);
+    const jsonlPath = path.join(projDir, `${sanitized}.jsonl`);
+    const sessionDir = path.join(projDir, sanitized);
+
+    let deletedJsonl = false;
+    let deletedDir = false;
+
+    try {
+        if (fs.existsSync(jsonlPath) && fs.statSync(jsonlPath).isFile()) {
+            fs.unlinkSync(jsonlPath);
+            deletedJsonl = true;
+        }
+    } catch (err) {
+        return sendJson(res, 500, { error: `Failed to delete JSONL file: ${err.message}` });
+    }
+
+    try {
+        if (fs.existsSync(sessionDir) && fs.statSync(sessionDir).isDirectory()) {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+            deletedDir = true;
+        }
+    } catch (err) {
+        return sendJson(res, 500, { error: `Failed to delete session directory: ${err.message}` });
+    }
+
+    sendJson(res, 200, {
+        ok: true,
+        deleted: { jsonl: deletedJsonl, directory: deletedDir },
+    });
 }
 
 // ---------------------------------------------------------------------------

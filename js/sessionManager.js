@@ -80,6 +80,9 @@ export class SessionState {
         /** @type {number} Timestamp of when new data was last read from the file */
         this.lastDataTime = Date.now();
 
+        /** @type {number} Timestamp of when this session was first seen */
+        this.createdTime = Date.now();
+
         /** @type {boolean} Whether the initial bulk read has completed */
         this._initialReadDone = false;
 
@@ -327,6 +330,7 @@ export class SessionManager {
                 // appear stale immediately instead of waiting an hour.
                 if (file.mtime) {
                     session.lastDataTime = file.mtime;
+                    session.createdTime = file.mtime;
                 }
                 this.sessions.set(sessionId, session);
                 this.onSessionUpdate('new', sessionId);

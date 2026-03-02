@@ -130,6 +130,15 @@ document.addEventListener('DOMContentLoaded', () => {
         detailPanel.hide();
     });
 
+    // Handle session deletion from the detail panel
+    document.addEventListener('session-deleted', (e) => {
+        const { sessionId } = e.detail;
+        sessionManager.sessions.delete(sessionId);
+        removeSessionBox(sessionId);
+        minimizedSessions.delete(sessionId);
+        updateSessionCount();
+    });
+
     // Show empty state initially
     showEmptyState();
 
@@ -432,8 +441,12 @@ function updateSessionBoxClass(sessionId, session) {
     }
 
     // Update stale state (suppressed when showAll is active)
-    const isStale = (Date.now() - session.lastDataTime) > STALE_SESSION_MS;
+    const elapsed = Date.now() - session.lastDataTime;
+    const isStale = elapsed > STALE_SESSION_MS;
     box.classList.toggle('stale', isStale && !showAll && !minimizedSessions.has(sessionId));
+
+    // Red border for sessions inactive longer than 24 hours
+    box.classList.toggle('stale-24h', elapsed > 24 * 60 * 60 * 1000);
 
     // Update minimized label info
     if (box.classList.contains('minimized')) {
@@ -654,7 +667,7 @@ function updateSessionCount() {
             filteredCount++;
         }
     }
-    const visible = total - minCount - staleCount - filteredCount;
+    const visible = total - minCount - (showAll ? 0 : staleCount) - filteredCount;
     let text = `${visible} session${visible !== 1 ? 's' : ''}`;
     if (minCount > 0) text += ` (${minCount} minimized)`;
     if (activeProjectFilter) {
@@ -773,33 +786,16 @@ function renderLoop(timestamp) {
 }
 
 /**
- * Set CSS order on a session box so active sessions sort first,
- * waiting sessions second, and idle/stale sessions last.
- * Within each group, more recently active sessions appear first.
+ * Set CSS order on a session box based on elapsed time since last activity.
+ * Most recently active sessions appear first (lowest order value).
  */
 function updateSessionSortOrder(sessionId, session) {
     const box = document.querySelector(`[data-session-id="${sessionId}"]`);
     if (!box || box.classList.contains('minimized')) return;
 
-    // Priority: active=0, waiting=1, idle=2, completed=3
-    let priority;
-    if (session.isComplete) {
-        priority = 3;
-    } else if (session.mainAgent.state === 'active') {
-        priority = 0;
-    } else if (session.mainAgent.state === 'waiting') {
-        priority = 1;
-    } else {
-        priority = 2;
-    }
-
-    // Use inverse recency within each priority band.
-    // lastDataTime is in ms; convert to seconds and cap at 9999 for order value.
+    // Sort purely by recency — convert elapsed ms to seconds, cap at 99999.
     const recencySeconds = Math.floor((Date.now() - session.lastDataTime) / 1000);
-    const clampedRecency = Math.min(recencySeconds, 9999);
-
-    // CSS order: priority * 10000 + recency (lower = appears first)
-    box.style.order = priority * 10000 + clampedRecency;
+    box.style.order = Math.min(recencySeconds, 99999);
 }
 
 // ---------------------------------------------------------------------------

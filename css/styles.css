@@ -457,6 +457,15 @@ body {
     display: none;
 }
 
+/* Session inactive for 24+ hours — red border */
+.session-box.stale-24h {
+    box-shadow: 0 0 0 2px #ff4444, 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.session-box.stale-24h:hover {
+    box-shadow: 0 0 0 2px #ff4444, 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
 /* ---------- Canvas inside boxes ---------- */
 .session-box canvas {
     display: block;
@@ -612,6 +621,178 @@ body {
 
 .dp-state-completed {
     color: #555577;
+}
+
+/* -- Actions row -- */
+.dp-actions {
+    display: flex;
+    gap: 8px;
+    padding: 0 20px 12px;
+    border-bottom: 1px solid #2a2a4a;
+}
+
+.dp-action-btn {
+    flex: 1;
+    padding: 7px 12px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.78rem;
+    border: 1px solid;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.dp-action-btn:focus-visible {
+    outline: 2px solid #2a8cd4;
+    outline-offset: 1px;
+}
+
+.dp-action-open {
+    color: #6fc3ff;
+    background-color: rgba(42, 140, 212, 0.12);
+    border-color: rgba(42, 140, 212, 0.35);
+}
+
+.dp-action-open:hover {
+    background-color: rgba(42, 140, 212, 0.25);
+    border-color: rgba(42, 140, 212, 0.6);
+}
+
+.dp-action-delete {
+    color: #ff6b6b;
+    background-color: rgba(255, 68, 68, 0.1);
+    border-color: rgba(255, 68, 68, 0.3);
+}
+
+.dp-action-delete:hover {
+    background-color: rgba(255, 68, 68, 0.2);
+    border-color: rgba(255, 68, 68, 0.5);
+}
+
+/* -- Delete confirmation modal -- */
+.dp-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.65);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.dp-modal {
+    background-color: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 10px;
+    padding: 28px 32px;
+    width: 420px;
+    max-width: 90vw;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
+.dp-modal-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #ff6b6b;
+    margin-bottom: 12px;
+}
+
+.dp-modal-warning {
+    font-size: 0.85rem;
+    color: #aaa;
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.dp-modal-name {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: #e0e0e0;
+    background-color: rgba(255, 255, 255, 0.06);
+    border: 1px solid #2a2a4a;
+    border-radius: 5px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    word-break: break-all;
+}
+
+.dp-modal-prompt {
+    font-size: 0.82rem;
+    color: #888;
+    margin-bottom: 10px;
+}
+
+.dp-modal-prompt strong {
+    color: #ccc;
+}
+
+.dp-modal-input {
+    width: 100%;
+    padding: 9px 12px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: #e0e0e0;
+    background-color: #111122;
+    border: 1px solid #2a2a4a;
+    border-radius: 5px;
+    outline: none;
+    margin-bottom: 20px;
+    transition: border-color 0.2s;
+}
+
+.dp-modal-input:focus {
+    border-color: #ff6b6b;
+    box-shadow: 0 0 0 2px rgba(255, 68, 68, 0.2);
+}
+
+.dp-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.dp-modal-cancel {
+    padding: 8px 18px;
+    font-size: 0.82rem;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    color: #aaa;
+    background-color: transparent;
+    border: 1px solid #2a2a4a;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.dp-modal-cancel:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: #e0e0e0;
+}
+
+.dp-modal-delete {
+    padding: 8px 18px;
+    font-size: 0.82rem;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    color: #fff;
+    background-color: #cc3333;
+    border: 1px solid #cc3333;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s, opacity 0.2s;
+}
+
+.dp-modal-delete:hover:not(:disabled) {
+    background-color: #ee4444;
+}
+
+.dp-modal-delete:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.dp-modal-delete:focus-visible,
+.dp-modal-cancel:focus-visible {
+    outline: 2px solid #2a8cd4;
+    outline-offset: 1px;
 }
 
 /* -- Log section -- */
