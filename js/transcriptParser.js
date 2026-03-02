@@ -36,6 +36,12 @@ export const TranscriptParser = {
             ? { type: 'SESSION_META', slug: record.slug, sessionId: record.sessionId }
             : null;
 
+        // Custom title set via /rename — stored separately so auto-slug
+        // from later records can't overwrite it.
+        if (record.type === 'custom-title' && record.customTitle) {
+            return { type: 'SESSION_META', customTitle: record.customTitle };
+        }
+
         switch (record.type) {
             case 'user': {
                 const event = this._parseUserRecord(record);

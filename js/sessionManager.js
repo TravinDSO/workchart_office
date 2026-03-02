@@ -14,6 +14,16 @@
 import { TranscriptParser } from './transcriptParser.js';
 
 // ---------------------------------------------------------------------------
+// Inactivity thresholds
+// ---------------------------------------------------------------------------
+
+/** Mark an active agent as idle after this many ms of no new data. */
+const INACTIVE_MS = 5000;
+
+/** Hide a sub-agent entirely after this many ms of inactivity. */
+const HIDE_MS = 30 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
 // SessionState — Represents a single agent session's current visual state
 // ---------------------------------------------------------------------------
 
@@ -27,8 +37,11 @@ export class SessionState {
         /** @type {string} */
         this.sessionId = sessionId;
 
-        /** @type {string} Human-readable session name */
+        /** @type {string} Auto-generated session name from transcript */
         this.slug = '';
+
+        /** @type {string} User-set custom title via /rename (takes priority) */
+        this.customTitle = '';
 
         /** @type {string|null} Project directory name */
         this.project = project || null;
@@ -63,6 +76,9 @@ export class SessionState {
 
         /** @type {number} Timestamp of when new data was last read from the file */
         this.lastDataTime = Date.now();
+
+        /** @type {boolean} Whether the initial bulk read has completed */
+        this._initialReadDone = false;
 
         /** @type {boolean} Whether the session has ended */
         this.isComplete = false;
@@ -130,6 +146,7 @@ export class SessionState {
                     description: event.description || '',
                     lastTool: null,
                     spawnTime: Date.now(),
+                    lastActivityTime: Date.now(),
                     toolId: event.toolId || null,
                 });
                 break;
@@ -138,6 +155,7 @@ export class SessionState {
                 const sub = this.subAgents.get(event.agentId);
                 if (sub) {
                     sub.state = 'active';
+                    sub.lastActivityTime = Date.now();
                     if (event.toolName) {
                         sub.lastTool = event.toolName;
                     }
@@ -157,7 +175,9 @@ export class SessionState {
                 break;
 
             case 'SESSION_META':
-                if (event.slug) {
+                if (event.customTitle) {
+                    this.customTitle = event.customTitle;
+                } else if (event.slug) {
                     this.slug = event.slug;
                 }
                 break;
@@ -281,6 +301,11 @@ export class SessionManager {
             // 2. Create new session if not yet tracked
             if (!this.sessions.has(sessionId)) {
                 const session = new SessionState(sessionId, file.handle, file.project);
+                // Use the file's actual modification time so old sessions
+                // appear stale immediately instead of waiting an hour.
+                if (file.mtime) {
+                    session.lastDataTime = file.mtime;
+                }
                 this.sessions.set(sessionId, session);
                 this.onSessionUpdate('new', sessionId);
             }
@@ -297,7 +322,13 @@ export class SessionManager {
             session.fileOffset = newOffset;
 
             if (hadNewMainData) {
-                session.lastDataTime = Date.now();
+                // Only update lastDataTime on subsequent reads, not the
+                // initial bulk read — the file mtime is more accurate for
+                // detecting sessions that have been dormant for hours.
+                if (session._initialReadDone) {
+                    session.lastDataTime = Date.now();
+                }
+                session._initialReadDone = true;
             }
 
             // 4. Parse each line and feed events into the session state
@@ -312,6 +343,9 @@ export class SessionManager {
             // 5. Poll for sub-agent files
             await this._pollSubAgents(session);
         }
+
+        // 6. Sweep agents that have gone inactive
+        this._sweepInactive();
     }
 
     /**
@@ -327,6 +361,39 @@ export class SessionManager {
             session.handleEvent(result);
         }
         this.onSessionUpdate('updated', session.sessionId);
+    }
+
+    /**
+     * Force agents idle after INACTIVE_MS of no new data and hide
+     * sub-agents after HIDE_MS of inactivity.
+     */
+    _sweepInactive() {
+        const now = Date.now();
+        for (const [, session] of this.sessions) {
+            const elapsed = now - session.lastDataTime;
+
+            // Main agent: force idle after 5s of silence
+            if (elapsed > INACTIVE_MS && session.mainAgent.state === 'active') {
+                session.mainAgent.state = 'idle';
+                session.mainAgent.currentTool = null;
+                session.mainAgent.toolId = null;
+                session.dirty = true;
+                this.onSessionUpdate('updated', session.sessionId);
+            }
+
+            // Sub-agents: idle after 5s, hidden after 1h
+            for (const [, sub] of session.subAgents) {
+                if (sub.state === 'completed') continue;
+                const subElapsed = now - (sub.lastActivityTime || sub.spawnTime);
+                if (subElapsed > HIDE_MS) {
+                    sub.state = 'completed';
+                    session.dirty = true;
+                } else if (subElapsed > INACTIVE_MS && sub.state === 'active') {
+                    sub.state = 'idle';
+                    session.dirty = true;
+                }
+            }
+        }
     }
 
     /**
@@ -351,6 +418,7 @@ export class SessionManager {
                             description: '',
                             lastTool: null,
                             spawnTime: Date.now(),
+                            lastActivityTime: Date.now(),
                         });
                         session.dirty = true;
                         this.onSessionUpdate('updated', session.sessionId);
@@ -381,6 +449,7 @@ export class SessionManager {
                             if (sub) {
                                 sub.state = 'active';
                                 sub.lastTool = event.toolName;
+                                sub.lastActivityTime = Date.now();
                                 session.dirty = true;
                             }
                         } else if (event.type === 'TURN_COMPLETE') {

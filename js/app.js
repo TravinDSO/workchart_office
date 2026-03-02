@@ -26,8 +26,8 @@ import { BoxRenderer } from './boxRenderer.js';
 /** Set to true to show 3 fake sessions for testing without opening a folder. */
 const DEMO_MODE = true;
 
-/** Hide sessions with no new data for this many milliseconds (1 hour). */
-const STALE_SESSION_MS = 60 * 60 * 1000;
+/** Hide sessions with no new data for this many milliseconds (30 min). */
+const STALE_SESSION_MS = 30 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Application state
@@ -332,7 +332,7 @@ function updateSessionBoxClass(sessionId, session) {
         }
         const nameEl = box.querySelector('.minimized-name');
         if (nameEl) {
-            nameEl.textContent = session.slug || sessionId.substring(0, 16);
+            nameEl.textContent = session.customTitle || session.slug || sessionId.substring(0, 16);
         }
     }
 }
@@ -422,6 +422,41 @@ function updateSessionCount() {
         text += ` in ${label}`;
     }
     sessionCountEl.textContent = text;
+
+    // Hide projects whose sessions are ALL stale from the dropdown
+    updateProjectDropdown();
+}
+
+/**
+ * Show/hide project options in the dropdown based on whether
+ * the project has at least one non-stale session.
+ */
+function updateProjectDropdown() {
+    const now = Date.now();
+    // Build set of projects that have at least one visible session
+    const activeProjects = new Set();
+    for (const [, session] of sessionManager.getSessions()) {
+        if ((now - session.lastDataTime) <= STALE_SESSION_MS || minimizedSessions.has(session.sessionId)) {
+            if (session.project) activeProjects.add(session.project);
+        }
+    }
+    // Demo sessions always keep their projects visible
+    for (const [, demoInfo] of demoSessions) {
+        if (demoInfo.session.project) activeProjects.add(demoInfo.session.project);
+    }
+
+    // Toggle visibility of each project option (skip "All Projects" at index 0)
+    for (let i = 1; i < projectFilterEl.options.length; i++) {
+        const opt = projectFilterEl.options[i];
+        opt.hidden = !activeProjects.has(opt.value);
+    }
+
+    // If the active filter is now hidden, reset to "All Projects"
+    if (activeProjectFilter && !activeProjects.has(activeProjectFilter)) {
+        projectFilterEl.value = '';
+        activeProjectFilter = null;
+        applyProjectFilter();
+    }
 }
 
 // ---------------------------------------------------------------------------

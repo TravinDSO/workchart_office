@@ -107,10 +107,16 @@ export class BoxRenderer {
         const humanState = session.humanActive ? 'active' : 'idle';
         this.spriteEngine.draw(ctx, 'human', humanState, 30, 15, dt);
 
+        // Label: "User" below the human sprite
+        this._drawSpriteLabel(ctx, 'User', 62, 83);
+
         // 4. Main Agent / Robot sprite (top-right, 64x64 rendered)
         const agentAnimState = session.mainAgent.state === 'waiting' ? 'idle' :
                                session.mainAgent.state === 'active' ? 'active' : 'idle';
         this.spriteEngine.draw(ctx, 'main-agent', agentAnimState, 280, 15, dt);
+
+        // Label: "Optimus Prime" below the main agent sprite
+        this._drawSpriteLabel(ctx, 'Optimus Prime', 312, 83);
 
         // 5. Connection line between human and agent
         this._drawConnection(ctx, session.mainAgent.state, dt);
@@ -188,23 +194,77 @@ export class BoxRenderer {
 
     _drawSubAgents(ctx, session, dt) {
         const baseY = 140;
-        const baseX = 20;
-        const spacing = 50;
-        let x = baseX;
-        let count = 0;
+        const minX = 20;
+        const maxX = 380;
+        const availableWidth = maxX - minX;
+        const spriteW = 32; // 16px at 2x
 
+        // Collect visible sub-agents first so we can calculate layout
+        const visible = [];
         for (const [, sub] of session.subAgents) {
-            // Skip completed sub-agents — they finished and should not be shown
-            if (sub.state === 'completed') continue;
+            if (sub.state !== 'completed') visible.push(sub);
+        }
+        if (visible.length === 0) return;
 
-            if (x > 370) break; // Prevent overflow past canvas
+        // Calculate spacing: spread evenly, but cap at a comfortable max
+        const maxSpacing = 90;
+        const minSpacing = 45;
+        let spacing;
+        if (visible.length === 1) {
+            spacing = 0; // single agent, no spacing needed
+        } else {
+            spacing = Math.min(maxSpacing, Math.max(minSpacing,
+                Math.floor(availableWidth / visible.length)));
+        }
+
+        // Calculate max label chars based on available space per agent
+        const labelCharsPerPx = 0.14; // ~7px per char at 9px monospace
+        const availPerAgent = visible.length === 1 ? availableWidth : spacing;
+        const maxLabelLen = Math.max(5, Math.floor(availPerAgent * labelCharsPerPx));
+
+        // Center the row if it doesn't fill the full width
+        const totalWidth = visible.length === 1 ? spriteW : (visible.length - 1) * spacing + spriteW;
+        const startX = Math.max(minX, Math.floor((this.logicalWidth - totalWidth) / 2));
+
+        for (let i = 0; i < visible.length; i++) {
+            const sub = visible[i];
+            const x = startX + i * spacing;
+
+            if (x + spriteW > maxX + 10) break; // safety overflow guard
 
             const subState = sub.state === 'active' ? 'active' : 'idle';
             this.spriteEngine.draw(ctx, 'sub-agent', subState, x, baseY, dt);
 
-            count++;
-            x = baseX + count * spacing;
+            // Label below the sub-agent sprite
+            const label = sub.description || 'agent';
+            const truncated = label.length > maxLabelLen
+                ? label.substring(0, maxLabelLen) + '..'
+                : label;
+            this._drawSpriteLabel(ctx, truncated, x + spriteW / 2, baseY + 35, 9);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Sprite labels
+    // -----------------------------------------------------------------------
+
+    /**
+     * Draw a small text label centered at (cx, y) below a sprite.
+     *
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {string} text
+     * @param {number} cx - Center x position.
+     * @param {number} y  - Top of the label text.
+     * @param {number} [fontSize=10] - Font size in pixels.
+     */
+    _drawSpriteLabel(ctx, text, cx, y, fontSize = 10) {
+        ctx.save();
+        ctx.font = `bold ${fontSize}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+        ctx.fillText(text, cx, y);
+        ctx.restore();
     }
 
     // -----------------------------------------------------------------------
@@ -285,27 +345,8 @@ export class BoxRenderer {
         // Project label (short, dimmed)
         const projectLabel = session.projectLabel || '';
 
-        // Session slug (truncated if needed)
-        const slug = session.slug || session.sessionId.substring(0, 12);
-        const maxSlugLen = projectLabel ? 14 : 18;
-        const displaySlug = slug.length > maxSlugLen ? slug.substring(0, maxSlugLen) + '..' : slug;
-
-        // Tool / state status
-        let toolStatus;
-        if (session.mainAgent.state === 'waiting') {
-            toolStatus = 'Waiting';
-        } else if (session.mainAgent.currentTool) {
-            toolStatus = session.mainAgent.currentTool;
-        } else {
-            toolStatus = session.mainAgent.state.charAt(0).toUpperCase()
-                + session.mainAgent.state.slice(1);
-        }
-
-        // Sub-agent count (exclude completed sub-agents)
-        let subCount = 0;
-        for (const [, sub] of session.subAgents) {
-            if (sub.state !== 'completed') subCount++;
-        }
+        // Session name — use the full available width
+        const slug = session.customTitle || session.slug || session.sessionId.substring(0, 12);
 
         // Draw project label first (dimmed) if available
         let textX = 10;
@@ -321,7 +362,7 @@ export class BoxRenderer {
             textX += ctx.measureText('|').width + 6;
         }
 
-        // Color based on state for the rest
+        // Color based on state
         if (session.mainAgent.state === 'active') {
             ctx.fillStyle = '#00ff88';
         } else if (session.mainAgent.state === 'waiting') {
@@ -330,14 +371,17 @@ export class BoxRenderer {
             ctx.fillStyle = '#aaaaaa';
         }
 
-        // Compose the main status line
-        let statusParts = [displaySlug, toolStatus];
-        if (subCount > 0) {
-            statusParts.push(`${subCount} sub`);
+        // Truncate slug to fit remaining width (with 10px right margin)
+        const maxWidth = this.logicalWidth - textX - 10;
+        let displaySlug = slug;
+        while (ctx.measureText(displaySlug).width > maxWidth && displaySlug.length > 3) {
+            displaySlug = displaySlug.substring(0, displaySlug.length - 1);
         }
-        const statusLine = statusParts.join('  |  ');
+        if (displaySlug.length < slug.length) {
+            displaySlug = displaySlug.substring(0, displaySlug.length - 2) + '..';
+        }
 
         ctx.textAlign = 'left';
-        ctx.fillText(statusLine, textX, barY + barHeight / 2);
+        ctx.fillText(displaySlug, textX, barY + barHeight / 2);
     }
 }

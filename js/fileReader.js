@@ -132,7 +132,12 @@ export class FileReaderLayer {
         try {
             for await (const entry of this.dirHandle.values()) {
                 if (entry.kind === 'file' && entry.name.endsWith('.jsonl')) {
-                    results.push({ name: entry.name, handle: entry });
+                    let mtime = null;
+                    try {
+                        const file = await entry.getFile();
+                        mtime = file.lastModified;
+                    } catch { /* ignore */ }
+                    results.push({ name: entry.name, handle: entry, mtime });
                 }
             }
         } catch (err) {
@@ -195,11 +200,12 @@ export class FileReaderLayer {
             const resp = await fetch(`${this.httpBase}/api/sessions`);
             if (!resp.ok) return [];
             const data = await resp.json();
-            // Server returns array of { name, project } objects
+            // Server returns array of { name, project, mtime } objects
             return (data.files || []).map(f => ({
                 name: f.name,
                 handle: f.name, // In HTTP mode, handle is the filename
                 project: f.project || null,
+                mtime: f.mtime || null,
             }));
         } catch (err) {
             console.error('HTTP listJsonlFiles failed:', err);

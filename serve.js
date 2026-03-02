@@ -1,24 +1,24 @@
 /**
  * serve.js — Minimal Node.js HTTP Server for WorkChart Office
  *
- * Serves the static frontend (index.html, css/, js/) and provides API
- * endpoints for browsers that lack the File System Access API (e.g., Firefox).
+ * Serves the static frontend and provides API endpoints for reading
+ * Claude Code JSONL transcript files across ALL project directories.
  *
  * No external dependencies — uses only Node.js built-in modules.
  *
  * Usage:
  *   node serve.js
+ *   node serve.js --port 8080
  *
  * Environment variables:
- *   PORT                 — Server port (default: 3200)
- *   CLAUDE_PROJECT_DIR   — Path to a specific Claude Code project directory.
- *                          If not set, auto-detects from ~/.claude/projects/
+ *   PORT — Server port (default: 3200)
  *
  * API Endpoints:
- *   GET /api/sessions             — List .jsonl files in the project directory
- *   GET /api/read?file=X&offset=N — Read new lines from a file starting at offset
- *   GET /api/subagents?session=ID — List sub-agent files for a session
- *   GET /*                        — Serve static files
+ *   GET /api/projects                              — List all project directories
+ *   GET /api/sessions?project=<name>               — List .jsonl files (all projects if omitted)
+ *   GET /api/read?project=<name>&file=X&offset=N   — Read new lines from a file starting at offset
+ *   GET /api/subagents?project=<name>&session=ID   — List sub-agent files for a session
+ *   GET /*                                         — Serve static files
  */
 
 const http = require('http');
@@ -30,18 +30,13 @@ const os = require('os');
 // Configuration
 // ---------------------------------------------------------------------------
 
-const PORT = parseInt(process.env.PORT, 10) || 3200;
+let PORT = parseInt(process.env.PORT, 10) || 3200;
 
 /** Directory containing the static web files (same directory as this script) */
 const STATIC_DIR = __dirname;
 
-/** Project directory containing .jsonl transcript files */
-let PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || null;
-
-// Auto-detect project directory if not explicitly set
-if (!PROJECT_DIR) {
-    PROJECT_DIR = findProjectDir();
-}
+/** Base directory containing all Claude Code project directories */
+const PROJECTS_BASE = path.join(os.homedir(), '.claude', 'projects');
 
 // ---------------------------------------------------------------------------
 // MIME types for static file serving
@@ -59,67 +54,81 @@ const MIME_TYPES = {
 };
 
 // ---------------------------------------------------------------------------
-// Project directory auto-detection
+// Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Scan ~/.claude/projects/ for the directory matching our current working
- * directory (serve.js location). Falls back to the most recently modified
- * project if no match is found.
+ * Derive a short human-friendly label from a project directory name.
  *
- * Claude Code names project dirs by replacing non-alphanumeric/non-hyphen
- * chars in the workspace path with hyphens.
+ * Claude Code encodes paths like C:\foo\bar as c--foo-bar (non-alnum → hyphen).
+ * The drive separator becomes '--' (e.g. C:\ → 'C--'). After stripping the
+ * drive prefix, we take the last ~25 characters worth of hyphen-separated parts.
  *
+ * @param {string} dirname
+ * @returns {string}
+ */
+function projectLabel(dirname) {
+    // Strip drive prefix (everything up to and including '--')
+    const idx = dirname.indexOf('--');
+    const tail = idx >= 0 ? dirname.slice(idx + 2) : dirname;
+
+    if (!tail) return dirname;
+
+    // If it's short enough, use it as-is
+    if (tail.length <= 25) return tail;
+
+    // Otherwise, take the last few hyphen-separated parts up to ~25 chars
+    const parts = tail.split('-');
+    const trailing = [];
+    for (let i = parts.length - 1; i >= 0; i--) {
+        const candidate = [parts[i], ...trailing].join('-');
+        if (candidate.length > 25 && trailing.length > 0) break;
+        trailing.unshift(parts[i]);
+    }
+    return trailing.length > 0 ? trailing.join('-') : tail.slice(-25);
+}
+
+/**
+ * Send a JSON response with CORS headers.
+ */
+function sendJson(res, statusCode, data) {
+    const body = JSON.stringify(data);
+    res.writeHead(statusCode, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Access-Control-Allow-Origin': '*',
+        'Content-Length': Buffer.byteLength(body),
+    });
+    res.end(body);
+}
+
+/**
+ * Send a plain text response.
+ */
+function sendText(res, statusCode, msg) {
+    const body = Buffer.from(msg, 'utf-8');
+    res.writeHead(statusCode, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Length': body.length,
+    });
+    res.end(body);
+}
+
+/**
+ * Safely resolve a project subdirectory under PROJECTS_BASE.
+ * Returns the full path string if valid, or null.
+ *
+ * @param {string} projectName
  * @returns {string|null}
  */
-function findProjectDir() {
-    const claudeProjectsBase = path.join(os.homedir(), '.claude', 'projects');
-
-    if (!fs.existsSync(claudeProjectsBase)) {
-        console.warn(`Claude projects directory not found at: ${claudeProjectsBase}`);
-        console.warn('Set CLAUDE_PROJECT_DIR environment variable to your project path.');
+function resolveProjectDir(projectName) {
+    if (!projectName || projectName.includes('..') || path.isAbsolute(projectName)) {
         return null;
     }
-
+    const d = path.join(PROJECTS_BASE, projectName);
     try {
-        const entries = fs.readdirSync(claudeProjectsBase, { withFileTypes: true });
-        const dirs = entries.filter(e => e.isDirectory());
-
-        if (dirs.length === 0) {
-            console.warn('No project directories found in:', claudeProjectsBase);
-            return null;
-        }
-
-        // Try to match a directory to our current working directory.
-        // Claude Code converts workspace paths like "C:\foo\bar" to "c--foo-bar"
-        const cwd = STATIC_DIR;
-        const cwdSanitized = cwd.replace(/[^a-zA-Z0-9-]/g, '-');
-        const cwdLower = cwdSanitized.toLowerCase();
-
-        const cwdMatch = dirs.find(d => d.name.toLowerCase() === cwdLower);
-        if (cwdMatch) {
-            const matched = path.join(claudeProjectsBase, cwdMatch.name);
-            console.log(`Matched project directory to cwd: ${matched}`);
-            return matched;
-        }
-
-        // Fallback: sort by modification time (most recent first)
-        const dirStats = dirs.map(d => {
-            const fullPath = path.join(claudeProjectsBase, d.name);
-            try {
-                const stat = fs.statSync(fullPath);
-                return { name: d.name, path: fullPath, mtime: stat.mtimeMs };
-            } catch {
-                return { name: d.name, path: fullPath, mtime: 0 };
-            }
-        });
-
-        dirStats.sort((a, b) => b.mtime - a.mtime);
-        const selected = dirStats[0];
-        console.log(`Auto-detected project directory (most recent): ${selected.path}`);
-        return selected.path;
-    } catch (err) {
-        console.error('Error scanning for project directories:', err);
+        const stat = fs.statSync(d);
+        return stat.isDirectory() ? d : null;
+    } catch {
         return null;
     }
 }
@@ -144,8 +153,11 @@ const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
     // Route API endpoints
+    if (url.pathname === '/api/projects') {
+        return handleListProjects(req, res);
+    }
     if (url.pathname === '/api/sessions') {
-        return handleListSessions(req, res);
+        return handleListSessions(req, res, url);
     }
     if (url.pathname === '/api/read') {
         return handleReadFile(req, res, url);
@@ -159,40 +171,110 @@ const server = http.createServer((req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// API: GET /api/sessions
+// API: GET /api/projects
 // ---------------------------------------------------------------------------
 
-function handleListSessions(req, res) {
-    if (!PROJECT_DIR) {
-        return sendJson(res, 500, { error: 'No project directory configured.' });
+function handleListProjects(req, res) {
+    if (!fs.existsSync(PROJECTS_BASE)) {
+        return sendJson(res, 200, { projects: [] });
     }
 
     try {
-        const entries = fs.readdirSync(PROJECT_DIR, { withFileTypes: true });
-        const jsonlFiles = entries
-            .filter(e => e.isFile() && e.name.endsWith('.jsonl'))
-            .map(e => ({ name: e.name }));
+        const entries = fs.readdirSync(PROJECTS_BASE, { withFileTypes: true });
+        const projects = entries
+            .filter(e => e.isDirectory())
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(e => ({
+                name: e.name,
+                label: projectLabel(e.name),
+            }));
 
-        sendJson(res, 200, { files: jsonlFiles, projectDir: PROJECT_DIR });
+        sendJson(res, 200, { projects });
+    } catch (err) {
+        sendJson(res, 500, { error: `Failed to list projects: ${err.message}` });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// API: GET /api/sessions?project=<name>
+// ---------------------------------------------------------------------------
+
+function handleListSessions(req, res, url) {
+    if (!fs.existsSync(PROJECTS_BASE)) {
+        return sendJson(res, 200, { files: [] });
+    }
+
+    const projectName = url.searchParams.get('project');
+
+    try {
+        const files = [];
+
+        if (projectName) {
+            // Single project
+            const projDir = resolveProjectDir(projectName);
+            if (projDir) {
+                const entries = fs.readdirSync(projDir, { withFileTypes: true });
+                for (const e of entries) {
+                    if (e.isFile() && e.name.endsWith('.jsonl')) {
+                        const stat = fs.statSync(path.join(projDir, e.name));
+                        files.push({
+                            name: e.name,
+                            project: projectName,
+                            mtime: stat.mtimeMs,
+                        });
+                    }
+                }
+            }
+        } else {
+            // All projects
+            const projEntries = fs.readdirSync(PROJECTS_BASE, { withFileTypes: true });
+            for (const d of projEntries) {
+                if (!d.isDirectory()) continue;
+                const projDir = path.join(PROJECTS_BASE, d.name);
+                try {
+                    const entries = fs.readdirSync(projDir, { withFileTypes: true });
+                    for (const e of entries) {
+                        if (e.isFile() && e.name.endsWith('.jsonl')) {
+                            const stat = fs.statSync(path.join(projDir, e.name));
+                            files.push({
+                                name: e.name,
+                                project: d.name,
+                                mtime: stat.mtimeMs,
+                            });
+                        }
+                    }
+                } catch {
+                    // Permission error — skip this project
+                    continue;
+                }
+            }
+        }
+
+        sendJson(res, 200, { files });
     } catch (err) {
         sendJson(res, 500, { error: `Failed to list sessions: ${err.message}` });
     }
 }
 
 // ---------------------------------------------------------------------------
-// API: GET /api/read?file=<name>&offset=<n>
+// API: GET /api/read?project=<name>&file=<name>&offset=<n>
 // ---------------------------------------------------------------------------
 
 function handleReadFile(req, res, url) {
-    if (!PROJECT_DIR) {
-        return sendJson(res, 500, { error: 'No project directory configured.' });
-    }
-
+    const projectName = url.searchParams.get('project');
     const fileName = url.searchParams.get('file');
     const offset = parseInt(url.searchParams.get('offset') || '0', 10);
 
+    if (!projectName) {
+        return sendJson(res, 400, { error: "Missing 'project' parameter." });
+    }
     if (!fileName) {
-        return sendJson(res, 400, { error: 'Missing "file" parameter.' });
+        return sendJson(res, 400, { error: "Missing 'file' parameter." });
+    }
+
+    const projDir = resolveProjectDir(projectName);
+    if (!projDir) {
+        return sendJson(res, 404, { error: 'Project not found.' });
     }
 
     // Sanitize: allow forward-slash-separated relative paths but block
@@ -202,7 +284,7 @@ function handleReadFile(req, res, url) {
         return sendJson(res, 400, { error: 'Invalid filename.' });
     }
 
-    const filePath = path.join(PROJECT_DIR, normalized);
+    const filePath = path.join(projDir, normalized);
 
     try {
         const stat = fs.statSync(filePath);
@@ -231,22 +313,28 @@ function handleReadFile(req, res, url) {
 }
 
 // ---------------------------------------------------------------------------
-// API: GET /api/subagents?session=<id>
+// API: GET /api/subagents?project=<name>&session=<id>
 // ---------------------------------------------------------------------------
 
 function handleListSubAgents(req, res, url) {
-    if (!PROJECT_DIR) {
-        return sendJson(res, 500, { error: 'No project directory configured.' });
-    }
-
+    const projectName = url.searchParams.get('project');
     const sessionId = url.searchParams.get('session');
+
+    if (!projectName) {
+        return sendJson(res, 400, { error: "Missing 'project' parameter." });
+    }
     if (!sessionId) {
-        return sendJson(res, 400, { error: 'Missing "session" parameter.' });
+        return sendJson(res, 400, { error: "Missing 'session' parameter." });
     }
 
-    // Sanitize sessionId
+    const projDir = resolveProjectDir(projectName);
+    if (!projDir) {
+        return sendJson(res, 200, { files: [] });
+    }
+
+    // Sanitize session ID
     const sanitized = path.basename(sessionId);
-    const subagentsDir = path.join(PROJECT_DIR, sanitized, 'subagents');
+    const subagentsDir = path.join(projDir, sanitized, 'subagents');
 
     try {
         if (!fs.existsSync(subagentsDir)) {
@@ -288,55 +376,88 @@ function handleStaticFile(req, res, url) {
     // Security check: ensure the resolved path is within STATIC_DIR
     const resolvedPath = path.resolve(fullPath);
     if (!resolvedPath.startsWith(path.resolve(STATIC_DIR))) {
-        res.writeHead(403, { 'Content-Type': 'text/plain' });
-        res.end('Forbidden');
-        return;
+        return sendText(res, 403, 'Forbidden');
     }
 
     try {
         if (!fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
-            res.writeHead(404, { 'Content-Type': 'text/plain' });
-            res.end('Not Found');
-            return;
+            return sendText(res, 404, 'Not Found');
         }
 
         const ext = path.extname(resolvedPath).toLowerCase();
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
         const content = fs.readFileSync(resolvedPath);
-        res.writeHead(200, { 'Content-Type': contentType });
+        res.writeHead(200, {
+            'Content-Type': contentType,
+            'Access-Control-Allow-Origin': '*',
+            'Content-Length': content.length,
+        });
         res.end(content);
     } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end(`Server error: ${err.message}`);
+        sendText(res, 500, `Server error: ${err.message}`);
     }
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// CLI argument parsing & startup
 // ---------------------------------------------------------------------------
 
-function sendJson(res, statusCode, data) {
-    res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify(data));
-}
+function main() {
+    // Simple arg parsing
+    const args = process.argv.slice(2);
+    let i = 0;
+    while (i < args.length) {
+        if ((args[i] === '--port' || args[i] === '-p') && i + 1 < args.length) {
+            PORT = parseInt(args[i + 1], 10);
+            i += 2;
+        } else if (args[i] === '--help' || args[i] === '-h') {
+            console.log('Usage: node serve.js [--port PORT]');
+            console.log('');
+            console.log('Options:');
+            console.log('  --port, -p PORT    Server port (default: 3200)');
+            console.log('');
+            console.log('Monitors all projects under ~/.claude/projects/');
+            process.exit(0);
+        } else {
+            console.log(`Unknown argument: ${args[i]}`);
+            process.exit(1);
+        }
+    }
 
-// ---------------------------------------------------------------------------
-// Start server
-// ---------------------------------------------------------------------------
+    // Discover projects
+    let projectCount = 0;
+    if (fs.existsSync(PROJECTS_BASE)) {
+        const entries = fs.readdirSync(PROJECTS_BASE, { withFileTypes: true });
+        const projectDirs = entries.filter(e => e.isDirectory());
+        projectCount = projectDirs.length;
+    }
 
-server.listen(PORT, () => {
-    console.log('');
-    console.log('  WorkChart Office Server');
-    console.log('  ========================');
-    console.log(`  URL:          http://localhost:${PORT}/`);
-    console.log(`  Static dir:   ${STATIC_DIR}`);
-    console.log(`  Project dir:  ${PROJECT_DIR || '(not configured)'}`);
-    console.log('');
-    if (!PROJECT_DIR) {
-        console.log('  WARNING: No project directory found.');
-        console.log('  Set CLAUDE_PROJECT_DIR environment variable or ensure');
-        console.log('  ~/.claude/projects/ exists with project directories.');
+    server.listen(PORT, () => {
         console.log('');
-    }
-});
+        console.log('  WorkChart Office');
+        console.log('  ================');
+        console.log(`  URL:          http://localhost:${PORT}/`);
+        console.log(`  Static dir:   ${STATIC_DIR}`);
+        console.log(`  Projects dir: ${PROJECTS_BASE}`);
+        console.log(`  Projects:     ${projectCount} found`);
+        if (fs.existsSync(PROJECTS_BASE)) {
+            const entries = fs.readdirSync(PROJECTS_BASE, { withFileTypes: true });
+            for (const d of entries.filter(e => e.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+                console.log(`                  - ${projectLabel(d.name)} (${d.name})`);
+            }
+        }
+        console.log('');
+
+        if (!fs.existsSync(PROJECTS_BASE)) {
+            console.log('  WARNING: ~/.claude/projects/ does not exist.');
+            console.log('  No sessions will be available until Claude Code creates projects.');
+            console.log('');
+        }
+
+        console.log(`  Listening on port ${PORT} (Ctrl+C to stop)`);
+        console.log('');
+    });
+}
+
+main();

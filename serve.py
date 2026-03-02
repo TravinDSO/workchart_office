@@ -18,7 +18,6 @@ import os
 import re
 import socketserver
 import sys
-import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -178,7 +177,11 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
                 if proj_dir:
                     for f in proj_dir.iterdir():
                         if f.is_file() and f.suffix == ".jsonl":
-                            files.append({"name": f.name, "project": project_name})
+                            files.append({
+                                "name": f.name,
+                                "project": project_name,
+                                "mtime": f.stat().st_mtime * 1000,
+                            })
             else:
                 # All projects
                 for d in PROJECTS_BASE.iterdir():
@@ -187,7 +190,11 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
                     try:
                         for f in d.iterdir():
                             if f.is_file() and f.suffix == ".jsonl":
-                                files.append({"name": f.name, "project": d.name})
+                                files.append({
+                                    "name": f.name,
+                                    "project": d.name,
+                                    "mtime": f.stat().st_mtime * 1000,
+                                })
                     except PermissionError:
                         continue
 
@@ -344,9 +351,6 @@ def main():
         daemon_threads = True
 
     server = ThreadedHTTPServer(("", PORT), WorkChartHandler)
-
-    # Open browser automatically
-    webbrowser.open(f"http://localhost:{PORT}/")
 
     try:
         print(f"  Listening on port {PORT} (Ctrl+C to stop)")
