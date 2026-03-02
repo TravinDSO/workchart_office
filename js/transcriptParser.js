@@ -31,9 +31,12 @@ export const TranscriptParser = {
             return null; // Skip malformed JSON lines
         }
 
+        // Record timestamp — used for accurate spawn/activity times
+        const ts = record.timestamp ? new Date(record.timestamp).getTime() : null;
+
         // Extract session metadata from any record that carries it
         const meta = record.slug
-            ? { type: 'SESSION_META', slug: record.slug, sessionId: record.sessionId }
+            ? { type: 'SESSION_META', slug: record.slug, sessionId: record.sessionId, ts }
             : null;
 
         // Custom title set via /rename — stored separately so auto-slug
@@ -42,10 +45,12 @@ export const TranscriptParser = {
             return { type: 'SESSION_META', customTitle: record.customTitle };
         }
 
+        let result;
         switch (record.type) {
             case 'user': {
                 const event = this._parseUserRecord(record);
-                return event || meta;
+                result = event || meta;
+                break;
             }
             case 'assistant': {
                 const events = this._parseAssistantRecord(record);
@@ -53,19 +58,34 @@ export const TranscriptParser = {
                     // If we also have meta, prepend it
                     if (meta) {
                         const arr = Array.isArray(events) ? events : [events];
-                        return [meta, ...arr];
+                        result = [meta, ...arr];
+                    } else {
+                        result = events;
                     }
-                    return events;
+                } else {
+                    result = meta;
                 }
-                return meta;
+                break;
             }
             case 'progress':
-                return this._parseProgressRecord(record) || meta;
+                result = this._parseProgressRecord(record) || meta;
+                break;
             case 'system':
-                return this._parseSystemRecord(record) || meta;
+                result = this._parseSystemRecord(record) || meta;
+                break;
             default:
-                return meta;
+                result = meta;
         }
+
+        // Stamp the record timestamp onto all returned events
+        if (ts && result) {
+            if (Array.isArray(result)) {
+                for (const e of result) { e.ts = ts; }
+            } else {
+                result.ts = ts;
+            }
+        }
+        return result;
     },
 
     // -----------------------------------------------------------------------
@@ -111,6 +131,13 @@ export const TranscriptParser = {
         if (!Array.isArray(content)) return null;
 
         const events = [];
+
+        // Capture assistant text output (Claude's comments/responses)
+        for (const block of content) {
+            if (block.type === 'text' && block.text?.trim()) {
+                events.push({ type: 'ASSISTANT_TEXT', text: block.text });
+            }
+        }
 
         for (const block of content) {
             if (block.type !== 'tool_use') continue;

@@ -49,6 +49,9 @@ export class BoxRenderer {
         /** Animated dash offset for the connection line */
         this._dashOffset = 0;
 
+        /** When true, completed sub-agents are shown */
+        this.showAllSubAgents = false;
+
         // Set up canvas for sharp rendering at device pixel ratio
         this._setupCanvas(this.logicalHeight);
     }
@@ -69,7 +72,7 @@ export class BoxRenderer {
 
         let visibleCount = 0;
         for (const [, sub] of session.subAgents) {
-            if (sub.state !== 'completed') visibleCount++;
+            if (this.showAllSubAgents || sub.state !== 'completed') visibleCount++;
         }
 
         const rightColBottom = 15 + visibleCount * 45;
@@ -177,6 +180,77 @@ export class BoxRenderer {
     }
 
     // -----------------------------------------------------------------------
+    // Hit-testing (for click / hover detection)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Convert CSS pixel coordinates to logical canvas coordinates,
+     * accounting for CSS scaling of the canvas element.
+     * @param {number} cssX
+     * @param {number} cssY
+     * @returns {{x: number, y: number}}
+     */
+    _cssToLogical(cssX, cssY) {
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = this.logicalWidth / rect.width;
+        const scaleY = this.logicalHeight / rect.height;
+        return {
+            x: cssX * scaleX,
+            y: cssY * scaleY,
+        };
+    }
+
+    /**
+     * Determine what element (if any) is at the given CSS pixel coords
+     * relative to the canvas element.
+     *
+     * @param {number} cssX - X relative to canvas bounding rect left.
+     * @param {number} cssY - Y relative to canvas bounding rect top.
+     * @param {import('./sessionManager.js').SessionState} session
+     * @returns {{type: 'human'|'main-agent'|'sub-agent', id: string|null}|null}
+     */
+    hitTest(cssX, cssY, session) {
+        const { x, y } = this._cssToLogical(cssX, cssY);
+
+        // Human sprite + label area
+        if (x >= 18 && x <= 82 && y >= 2 && y <= 57) {
+            return { type: 'human', id: null };
+        }
+
+        // Main agent sprite + label area
+        if (x >= 18 && x <= 82 && y >= 82 && y <= 139) {
+            return { type: 'main-agent', id: null };
+        }
+
+        // Sub-agents in the right column
+        const visible = [];
+        for (const [key, sub] of session.subAgents) {
+            if (this.showAllSubAgents || sub.state !== 'completed') visible.push(key);
+        }
+        for (let i = 0; i < visible.length; i++) {
+            const rowY = 7 + i * 45;
+            if (x >= 102 && x <= 390 && y >= rowY && y <= rowY + 40) {
+                return { type: 'sub-agent', id: visible[i] };
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if the given CSS coords are over a clickable sprite area.
+     * Used for cursor feedback (pointer vs default).
+     *
+     * @param {number} cssX
+     * @param {number} cssY
+     * @param {import('./sessionManager.js').SessionState} session
+     * @returns {boolean}
+     */
+    isOverClickable(cssX, cssY, session) {
+        return this.hitTest(cssX, cssY, session) !== null;
+    }
+
+    // -----------------------------------------------------------------------
     // Connection line
     // -----------------------------------------------------------------------
 
@@ -264,7 +338,7 @@ export class BoxRenderer {
         // Collect visible sub-agents
         const visible = [];
         for (const [, sub] of session.subAgents) {
-            if (sub.state !== 'completed') visible.push(sub);
+            if (this.showAllSubAgents || sub.state !== 'completed') visible.push(sub);
         }
         if (visible.length === 0) return;
 

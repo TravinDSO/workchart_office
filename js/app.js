@@ -18,6 +18,7 @@ import { SpriteEngine } from './spriteEngine.js';
 import { FileReaderLayer } from './fileReader.js';
 import { SessionManager, SessionState } from './sessionManager.js';
 import { BoxRenderer } from './boxRenderer.js';
+import { DetailPanel } from './detailPanel.js';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -45,8 +46,14 @@ let sessionManager;
 /** @type {Map<string, BoxRenderer>} Maps sessionId to its BoxRenderer */
 const boxRenderers = new Map();
 
+/** @type {DetailPanel} */
+let detailPanel;
+
 /** @type {Set<string>} Session IDs the user has manually minimized */
 const minimizedSessions = new Set();
+
+/** @type {boolean} When true, stale/completed sessions are shown */
+let showAll = false;
 
 /** @type {number} Last timestamp from requestAnimationFrame */
 let lastTimestamp = 0;
@@ -66,6 +73,7 @@ let minimizedTray;
 let sessionCountEl;
 let pollStatusEl;
 let statusIndicator;
+let showAllBtn;
 let projectFilterEl;
 
 // ---------------------------------------------------------------------------
@@ -80,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pollStatusEl = document.getElementById('poll-status');
     statusIndicator = document.getElementById('status-indicator');
     projectFilterEl = document.getElementById('project-filter');
+    showAllBtn = document.getElementById('show-all-btn');
 
     // Initialize the sprite engine
     spriteEngine = new SpriteEngine();
@@ -93,6 +102,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Wire up project filter
     projectFilterEl.addEventListener('change', handleProjectFilterChange);
+
+    // Wire up Show All toggle
+    showAllBtn.addEventListener('click', toggleShowAll);
+
+    // Initialize the detail panel
+    detailPanel = new DetailPanel();
+
+    // Close panel on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && detailPanel.isVisible) {
+            detailPanel.hide();
+        }
+    });
+
+    // Close panel on click-outside (not on canvas or panel itself)
+    document.addEventListener('click', (e) => {
+        if (!detailPanel.isVisible) return;
+        if (detailPanel.el.contains(e.target)) return;
+        if (e.target.tagName === 'CANVAS') return;
+        detailPanel.hide();
+    });
 
     // Show empty state initially
     showEmptyState();
@@ -170,6 +200,36 @@ function populateProjectFilter(projects) {
 function handleProjectFilterChange() {
     activeProjectFilter = projectFilterEl.value || null;
     applyProjectFilter();
+    updateSessionCount();
+}
+
+/**
+ * Toggle showing all sessions (including stale/completed).
+ */
+function toggleShowAll() {
+    showAll = !showAll;
+    showAllBtn.classList.toggle('active', showAll);
+    showAllBtn.textContent = showAll ? 'Hide Stale' : 'Show All';
+
+    // Sync flag to all renderers so completed sub-agents are shown/hidden
+    for (const [, renderer] of boxRenderers) {
+        renderer.showAllSubAgents = showAll;
+    }
+
+    // Toggle stale visibility on all session boxes
+    for (const [sessionId,] of boxRenderers) {
+        const session = sessionManager.getSession(sessionId);
+        if (session) {
+            const box = document.querySelector(`[data-session-id="${sessionId}"]`);
+            if (!box) continue;
+            const isStale = (Date.now() - session.lastDataTime) > STALE_SESSION_MS;
+            if (showAll) {
+                box.classList.remove('stale');
+            } else if (isStale && !minimizedSessions.has(sessionId)) {
+                box.classList.add('stale');
+            }
+        }
+    }
     updateSessionCount();
 }
 
@@ -261,6 +321,36 @@ function createSessionBox(sessionId, project) {
 
     // Create canvas element
     const canvas = document.createElement('canvas');
+
+    // Click handler — open detail panel for the clicked sprite
+    canvas.addEventListener('click', (e) => {
+        const renderer = boxRenderers.get(sessionId);
+        const session = sessionManager.getSession(sessionId) || getDemoSession(sessionId);
+        if (!renderer || !session) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const cssX = e.clientX - rect.left;
+        const cssY = e.clientY - rect.top;
+        const hit = renderer.hitTest(cssX, cssY, session);
+        if (hit) {
+            detailPanel.show(sessionId, hit.type, hit.id, session);
+        }
+    });
+
+    // Mousemove handler — toggle pointer cursor over clickable sprites
+    canvas.addEventListener('mousemove', (e) => {
+        const renderer = boxRenderers.get(sessionId);
+        const session = sessionManager.getSession(sessionId) || getDemoSession(sessionId);
+        if (!renderer || !session) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const cssX = e.clientX - rect.left;
+        const cssY = e.clientY - rect.top;
+        canvas.style.cursor = renderer.isOverClickable(cssX, cssY, session)
+            ? 'pointer'
+            : 'default';
+    });
+
     box.appendChild(canvas);
 
     // Minimized label (hidden until minimized)
@@ -292,6 +382,7 @@ function createSessionBox(sessionId, project) {
 
     // Create a BoxRenderer for this canvas
     const renderer = new BoxRenderer(canvas, spriteEngine);
+    renderer.showAllSubAgents = showAll;
     boxRenderers.set(sessionId, renderer);
 }
 
@@ -322,9 +413,9 @@ function updateSessionBoxClass(sessionId, session) {
         box.classList.add('active');
     }
 
-    // Update stale state
+    // Update stale state (suppressed when showAll is active)
     const isStale = (Date.now() - session.lastDataTime) > STALE_SESSION_MS;
-    box.classList.toggle('stale', isStale && !minimizedSessions.has(sessionId));
+    box.classList.toggle('stale', isStale && !showAll && !minimizedSessions.has(sessionId));
 
     // Update minimized label info
     if (box.classList.contains('minimized')) {
@@ -350,6 +441,10 @@ function minimizeSession(sessionId) {
         box.classList.add('minimized');
         box.classList.remove('stale');
         minimizedTray.appendChild(box);
+    }
+    // Close detail panel if showing this session
+    if (detailPanel && detailPanel.activeSessionId === sessionId) {
+        detailPanel.hide();
     }
     updateSessionCount();
 }
@@ -488,6 +583,10 @@ function renderLoop(timestamp) {
             }
             renderer.render(session, dt);
             updateSessionBoxClass(sessionId, session);
+            // Update detail panel if it's showing this session
+            if (detailPanel && detailPanel.activeSessionId === sessionId) {
+                detailPanel.update(session);
+            }
             // We render every frame for smooth animation (even if not dirty)
             // The dirty flag is used by the session manager to know new data arrived.
             session.dirty = false;
@@ -502,6 +601,10 @@ function renderLoop(timestamp) {
             updateDemoState(demoInfo, dt);
             renderer.render(demoInfo.session, dt);
             updateSessionBoxClass(sessionId, demoInfo.session);
+            // Update detail panel if it's showing this demo session
+            if (detailPanel && detailPanel.activeSessionId === sessionId) {
+                detailPanel.update(demoInfo.session);
+            }
         }
     }
 
@@ -638,6 +741,14 @@ function updateDemoState(demoInfo, dt) {
 
         session.dirty = true;
     }
+}
+
+/**
+ * Look up a demo session by ID (returns the SessionState or undefined).
+ */
+function getDemoSession(sessionId) {
+    const demoInfo = demoSessions.get(sessionId);
+    return demoInfo ? demoInfo.session : undefined;
 }
 
 function clearDemoSessions() {

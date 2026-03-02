@@ -18,10 +18,13 @@ import { TranscriptParser } from './transcriptParser.js';
 // ---------------------------------------------------------------------------
 
 /** Mark an active agent as idle after this many ms of no new data. */
-const INACTIVE_MS = 5000;
+const INACTIVE_MS = 30000;
 
 /** Hide a sub-agent entirely after this many ms of inactivity. */
 const HIDE_MS = 30 * 60 * 1000;
+
+/** Maximum event log entries kept per entity (main, human, each sub-agent). */
+const MAX_LOG_ENTRIES = 50;
 
 // ---------------------------------------------------------------------------
 // SessionState — Represents a single agent session's current visual state
@@ -82,6 +85,14 @@ export class SessionState {
 
         /** @type {boolean} Whether the session has ended */
         this.isComplete = false;
+
+        // Event logs — capped ring buffers for the detail panel
+        /** @type {Array<{time: number, type: string, detail: string}>} */
+        this.humanLog = [];
+        /** @type {Array<{time: number, type: string, detail: string}>} */
+        this.mainAgentLog = [];
+        /** @type {Map<string, Array<{time: number, type: string, detail: string}>>} */
+        this.subAgentLogs = new Map();
 
         // Sub-agent file tracking
         /** @type {Map<string, {handle: FileSystemFileHandle|string, offset: number}>} */
@@ -145,8 +156,8 @@ export class SessionState {
                     state: 'active',
                     description: event.description || '',
                     lastTool: null,
-                    spawnTime: Date.now(),
-                    lastActivityTime: Date.now(),
+                    spawnTime: event.ts || Date.now(),
+                    lastActivityTime: event.ts || Date.now(),
                     toolId: event.toolId || null,
                 });
                 break;
@@ -155,7 +166,7 @@ export class SessionState {
                 const sub = this.subAgents.get(event.agentId);
                 if (sub) {
                     sub.state = 'active';
-                    sub.lastActivityTime = Date.now();
+                    sub.lastActivityTime = event.ts || Date.now();
                     if (event.toolName) {
                         sub.lastTool = event.toolName;
                     }
@@ -319,6 +330,7 @@ export class SessionManager {
                 session.project
             );
             const hadNewMainData = newOffset > session.fileOffset;
+            const wasInitialRead = !session._initialReadDone && hadNewMainData;
             session.fileOffset = newOffset;
 
             if (hadNewMainData) {
@@ -340,6 +352,24 @@ export class SessionManager {
                 }
             }
 
+            // 5. After the initial bulk read, reset transient visual state
+            //    so the session doesn't appear active from historical events.
+            //    Live data on the next poll cycle will set the correct state.
+            if (wasInitialRead) {
+                session.mainAgent.state = 'idle';
+                session.mainAgent.currentTool = null;
+                session.mainAgent.toolId = null;
+                session.humanActive = false;
+                if (session._humanActiveTimer) {
+                    clearTimeout(session._humanActiveTimer);
+                    session._humanActiveTimer = null;
+                }
+                for (const [, sub] of session.subAgents) {
+                    if (sub.state === 'active') sub.state = 'idle';
+                }
+                session.dirty = true;
+            }
+
             // 5. Poll for sub-agent files
             await this._pollSubAgents(session);
         }
@@ -349,18 +379,107 @@ export class SessionManager {
     }
 
     /**
-     * Apply one or more events to a session.
+     * Apply one or more events to a session and record them in logs.
      * The parser may return a single event or an array of events.
      */
     _applyEvents(session, result) {
-        if (Array.isArray(result)) {
-            for (const event of result) {
-                session.handleEvent(event);
-            }
-        } else {
-            session.handleEvent(result);
+        const events = Array.isArray(result) ? result : [result];
+        for (const event of events) {
+            session.handleEvent(event);
+            this._logEvent(session, event);
         }
         this.onSessionUpdate('updated', session.sessionId);
+    }
+
+    /**
+     * Record an event into the appropriate log for the detail panel.
+     */
+    _logEvent(session, event) {
+        if (!event || !event.type) return;
+        const now = event.ts || Date.now();
+
+        switch (event.type) {
+            case 'USER_PROMPT':
+                _pushLog(session.humanLog, {
+                    time: now,
+                    type: 'prompt',
+                    detail: event.text || '(prompt)',
+                });
+                break;
+            case 'ASSISTANT_TEXT':
+                _pushLog(session.mainAgentLog, {
+                    time: now,
+                    type: 'text',
+                    detail: event.text,
+                });
+                break;
+            case 'TOOL_START':
+                _pushLog(session.mainAgentLog, {
+                    time: now,
+                    type: 'tool',
+                    detail: event.toolName || 'unknown',
+                });
+                break;
+            case 'TOOL_END':
+                _pushLog(session.mainAgentLog, {
+                    time: now,
+                    type: 'tool_end',
+                    detail: 'done',
+                });
+                break;
+            case 'SUBAGENT_SPAWN':
+                _pushLog(session.mainAgentLog, {
+                    time: now,
+                    type: 'spawn',
+                    detail: event.description || 'sub-agent',
+                });
+                break;
+            case 'ASK_USER':
+                _pushLog(session.mainAgentLog, {
+                    time: now,
+                    type: 'ask',
+                    detail: 'waiting for user',
+                });
+                break;
+            case 'TURN_COMPLETE':
+                _pushLog(session.mainAgentLog, {
+                    time: now,
+                    type: 'turn',
+                    detail: event.durationMs ? `${(event.durationMs / 1000).toFixed(1)}s` : 'done',
+                });
+                break;
+        }
+    }
+
+    /**
+     * Record a sub-agent event into its dedicated log.
+     */
+    _logSubAgentEvent(session, agentId, event) {
+        if (!event || !event.type) return;
+        let log = session.subAgentLogs.get(agentId);
+        if (!log) {
+            log = [];
+            session.subAgentLogs.set(agentId, log);
+        }
+        const now = event.ts || Date.now();
+
+        switch (event.type) {
+            case 'ASSISTANT_TEXT':
+                _pushLog(log, { time: now, type: 'text', detail: event.text });
+                break;
+            case 'TOOL_START':
+                _pushLog(log, { time: now, type: 'tool', detail: event.toolName || 'unknown' });
+                break;
+            case 'TOOL_END':
+                _pushLog(log, { time: now, type: 'tool_end', detail: 'done' });
+                break;
+            case 'TURN_COMPLETE':
+                _pushLog(log, { time: now, type: 'turn', detail: 'turn complete' });
+                break;
+            case 'USER_PROMPT':
+                _pushLog(log, { time: now, type: 'prompt', detail: event.text || '' });
+                break;
+        }
     }
 
     /**
@@ -370,18 +489,8 @@ export class SessionManager {
     _sweepInactive() {
         const now = Date.now();
         for (const [, session] of this.sessions) {
-            const elapsed = now - session.lastDataTime;
-
-            // Main agent: force idle after 5s of silence
-            if (elapsed > INACTIVE_MS && session.mainAgent.state === 'active') {
-                session.mainAgent.state = 'idle';
-                session.mainAgent.currentTool = null;
-                session.mainAgent.toolId = null;
-                session.dirty = true;
-                this.onSessionUpdate('updated', session.sessionId);
-            }
-
-            // Sub-agents: idle after 5s, hidden after 1h
+            // Sub-agents: idle after timeout, hidden after 1h
+            let hasActiveSub = false;
             for (const [, sub] of session.subAgents) {
                 if (sub.state === 'completed') continue;
                 const subElapsed = now - (sub.lastActivityTime || sub.spawnTime);
@@ -392,6 +501,19 @@ export class SessionManager {
                     sub.state = 'idle';
                     session.dirty = true;
                 }
+                if (sub.state === 'active') hasActiveSub = true;
+            }
+
+            const elapsed = now - session.lastDataTime;
+
+            // Main agent: force idle after timeout, but stay active if
+            // any sub-agent is still active (main is waiting on results)
+            if (elapsed > INACTIVE_MS && session.mainAgent.state === 'active' && !hasActiveSub) {
+                session.mainAgent.state = 'idle';
+                session.mainAgent.currentTool = null;
+                session.mainAgent.toolId = null;
+                session.dirty = true;
+                this.onSessionUpdate('updated', session.sessionId);
             }
         }
     }
@@ -409,17 +531,33 @@ export class SessionManager {
                     session._subAgentFiles.set(sf.agentId, {
                         handle: sf.handle,
                         offset: 0,
+                        initialReadDone: false,
                     });
 
-                    // If the sub-agent is not yet in the session state, add it
+                    // If the sub-agent is not yet in the session state, add it.
+                    // First, try to match against a spawn-created entry (has
+                    // description but no _matchedFileId) to avoid duplicates.
                     if (!session.subAgents.has(sf.agentId)) {
-                        session.subAgents.set(sf.agentId, {
-                            state: 'active',
-                            description: '',
-                            lastTool: null,
-                            spawnTime: Date.now(),
-                            lastActivityTime: Date.now(),
-                        });
+                        let matched = false;
+                        for (const [spawnKey, sub] of session.subAgents) {
+                            if (sub.description && !sub._matchedFileId && sub.state !== 'completed') {
+                                // Re-key: move from tool_use ID to file-based agentId
+                                sub._matchedFileId = sf.agentId;
+                                session.subAgents.delete(spawnKey);
+                                session.subAgents.set(sf.agentId, sub);
+                                matched = true;
+                                break;
+                            }
+                        }
+                        if (!matched) {
+                            session.subAgents.set(sf.agentId, {
+                                state: 'idle',
+                                description: '',
+                                lastTool: null,
+                                spawnTime: Date.now(),
+                                lastActivityTime: Date.now(),
+                            });
+                        }
                         session.dirty = true;
                         this.onSessionUpdate('updated', session.sessionId);
                     }
@@ -433,43 +571,73 @@ export class SessionManager {
                     session.project
                 );
                 const hadNewData = newOffset > tracking.offset;
+                const wasInitialRead = !tracking.initialReadDone && hadNewData;
                 tracking.offset = newOffset;
+                if (hadNewData) tracking.initialReadDone = true;
 
-                // Parse lines — we mainly look for TOOL_START events to track
-                // what the sub-agent is doing
+                // Parse lines — look for TOOL_START and other activity events
                 for (const line of lines) {
                     const result = TranscriptParser.parse(line);
                     if (!result) continue;
 
                     const events = Array.isArray(result) ? result : [result];
                     for (const event of events) {
+                        // Log the event for the detail panel
+                        this._logSubAgentEvent(session, sf.agentId, event);
+
+                        const eventTime = event.ts || Date.now();
+
                         if (event.type === 'TOOL_START') {
-                            // Update the sub-agent's last tool
                             const sub = session.subAgents.get(sf.agentId);
                             if (sub) {
                                 sub.state = 'active';
                                 sub.lastTool = event.toolName;
-                                sub.lastActivityTime = Date.now();
+                                sub.lastActivityTime = eventTime;
                                 session.dirty = true;
                             }
                         } else if (event.type === 'TURN_COMPLETE') {
-                            // Sub-agent turn completed — mark as completed
                             const sub = session.subAgents.get(sf.agentId);
                             if (sub) {
-                                sub.state = 'completed';
+                                sub.lastActivityTime = eventTime;
+                                session.dirty = true;
+                            }
+                        } else if (event.type === 'USER_PROMPT') {
+                            const sub = session.subAgents.get(sf.agentId);
+                            if (sub) {
+                                sub.lastActivityTime = eventTime;
+                                // Use the first prompt as the description if
+                                // we don't have one (more reliable than spawn matching)
+                                if (!sub.description && event.text) {
+                                    const firstLine = event.text.split('\n')[0].trim();
+                                    sub.description = firstLine.length > 80
+                                        ? firstLine.substring(0, 78) + '..'
+                                        : firstLine;
+                                }
+                                session.dirty = true;
+                            }
+                        } else if (event.type === 'TOOL_END') {
+                            const sub = session.subAgents.get(sf.agentId);
+                            if (sub) {
+                                sub.lastActivityTime = eventTime;
                                 session.dirty = true;
                             }
                         }
                     }
                 }
 
-                // If no new data arrived and the sub-agent was previously read,
-                // its transcript has stopped growing — mark as completed
-                if (!hadNewData && tracking.offset > 0) {
+                // After initial bulk read, reset sub-agent to idle with
+                // accurate timestamps — use the earliest event as spawnTime
+                if (wasInitialRead) {
+                    const sub = session.subAgents.get(sf.agentId);
+                    if (sub) {
+                        sub.state = 'idle';
+                        session.dirty = true;
+                    }
+                } else if (hadNewData) {
+                    // Live data — mark as active
                     const sub = session.subAgents.get(sf.agentId);
                     if (sub && sub.state !== 'completed') {
-                        sub.state = 'completed';
-                        session.dirty = true;
+                        sub.lastActivityTime = Date.now();
                     }
                 }
             }
@@ -478,3 +646,16 @@ export class SessionManager {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Module-level helpers
+// ---------------------------------------------------------------------------
+
+/** Push an entry into a capped log array. */
+function _pushLog(log, entry) {
+    log.push(entry);
+    if (log.length > MAX_LOG_ENTRIES) {
+        log.shift();
+    }
+}
+
