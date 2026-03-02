@@ -21,7 +21,7 @@ import { TranscriptParser } from './transcriptParser.js';
 const INACTIVE_MS = 30000;
 
 /** Hide a sub-agent entirely after this many ms of inactivity. */
-const HIDE_MS = 30 * 60 * 1000;
+const HIDE_MS = 5 * 60 * 1000;
 
 /** Maximum event log entries kept per entity (main, human, each sub-agent). */
 const MAX_LOG_ENTRIES = 50;
@@ -229,6 +229,12 @@ export class SessionManager {
 
         /** Polling interval in ms */
         this.pollInterval = 2000;
+
+        /** @type {number} Consecutive poll failures (0 = healthy) */
+        this.consecutiveErrors = 0;
+
+        /** @type {number} Timestamp of last successful poll */
+        this.lastSuccessfulPoll = 0;
     }
 
     // -----------------------------------------------------------------------
@@ -292,8 +298,13 @@ export class SessionManager {
 
         try {
             await this._pollCycle();
+            this.consecutiveErrors = 0;
+            this.lastSuccessfulPoll = Date.now();
         } catch (err) {
-            console.error('Poll cycle error:', err);
+            this.consecutiveErrors++;
+            if (this.consecutiveErrors <= 3) {
+                console.warn('Poll cycle error (attempt ' + this.consecutiveErrors + '):', err.message || err);
+            }
         }
 
         // Schedule next poll
@@ -519,6 +530,55 @@ export class SessionManager {
     }
 
     /**
+     * Try to match a file-discovered sub-agent against a spawn entry from
+     * the main transcript, using timestamp proximity. This merges the
+     * spawn's description into the file-based entry and removes the
+     * orphaned spawn entry to prevent duplicates.
+     *
+     * @param {SessionState} session
+     * @param {string} fileAgentId - The file-based agent ID
+     * @param {object} fileSub - The file-based sub-agent entry
+     */
+    _matchSpawnEntry(session, fileAgentId, fileSub) {
+        let bestKey = null;
+        let bestDelta = Infinity;
+
+        for (const [spawnKey, spawnSub] of session.subAgents) {
+            // Skip the file entry itself and already-matched entries
+            if (spawnKey === fileAgentId) continue;
+            if (spawnSub._matchedFileId) continue;
+            if (!spawnSub.spawnTime) continue;
+
+            // Must have a description (spawn entries always do)
+            if (!spawnSub.description) continue;
+
+            // Compare spawn time to the file's earliest event
+            const delta = Math.abs(spawnSub.spawnTime - fileSub.spawnTime);
+
+            // Only match within a 60-second window
+            if (delta < 60000 && delta < bestDelta) {
+                bestDelta = delta;
+                bestKey = spawnKey;
+            }
+        }
+
+        if (bestKey) {
+            const spawnSub = session.subAgents.get(bestKey);
+            // Merge: take description from spawn if file entry has none
+            if (!fileSub.description && spawnSub.description) {
+                fileSub.description = spawnSub.description;
+            }
+            // Use the spawn's original timestamp if it's earlier
+            if (spawnSub.spawnTime && spawnSub.spawnTime < fileSub.spawnTime) {
+                fileSub.spawnTime = spawnSub.spawnTime;
+            }
+            // Mark and remove the orphaned spawn entry
+            spawnSub._matchedFileId = fileAgentId;
+            session.subAgents.delete(bestKey);
+        }
+    }
+
+    /**
      * Poll for sub-agent transcript files and read new lines from them.
      */
     async _pollSubAgents(session) {
@@ -534,30 +594,18 @@ export class SessionManager {
                         initialReadDone: false,
                     });
 
-                    // If the sub-agent is not yet in the session state, add it.
-                    // First, try to match against a spawn-created entry (has
-                    // description but no _matchedFileId) to avoid duplicates.
+                    // Create a placeholder entry — timestamps will be set
+                    // from actual event data after the initial read.
+                    // Matching against spawn entries is deferred until then.
                     if (!session.subAgents.has(sf.agentId)) {
-                        let matched = false;
-                        for (const [spawnKey, sub] of session.subAgents) {
-                            if (sub.description && !sub._matchedFileId && sub.state !== 'completed') {
-                                // Re-key: move from tool_use ID to file-based agentId
-                                sub._matchedFileId = sf.agentId;
-                                session.subAgents.delete(spawnKey);
-                                session.subAgents.set(sf.agentId, sub);
-                                matched = true;
-                                break;
-                            }
-                        }
-                        if (!matched) {
-                            session.subAgents.set(sf.agentId, {
-                                state: 'idle',
-                                description: '',
-                                lastTool: null,
-                                spawnTime: Date.now(),
-                                lastActivityTime: Date.now(),
-                            });
-                        }
+                        session.subAgents.set(sf.agentId, {
+                            state: 'idle',
+                            description: '',
+                            lastTool: null,
+                            spawnTime: null,
+                            lastActivityTime: null,
+                            _needsMatch: true,
+                        });
                         session.dirty = true;
                         this.onSessionUpdate('updated', session.sessionId);
                     }
@@ -575,6 +623,10 @@ export class SessionManager {
                 tracking.offset = newOffset;
                 if (hadNewData) tracking.initialReadDone = true;
 
+                // Track earliest/latest timestamps during initial read
+                let minTs = Infinity;
+                let maxTs = -Infinity;
+
                 // Parse lines — look for TOOL_START and other activity events
                 for (const line of lines) {
                     const result = TranscriptParser.parse(line);
@@ -586,6 +638,10 @@ export class SessionManager {
                         this._logSubAgentEvent(session, sf.agentId, event);
 
                         const eventTime = event.ts || Date.now();
+
+                        // Track timestamp range
+                        if (eventTime < minTs) minTs = eventTime;
+                        if (eventTime > maxTs) maxTs = eventTime;
 
                         if (event.type === 'TOOL_START') {
                             const sub = session.subAgents.get(sf.agentId);
@@ -625,12 +681,30 @@ export class SessionManager {
                     }
                 }
 
-                // After initial bulk read, reset sub-agent to idle with
-                // accurate timestamps — use the earliest event as spawnTime
+                // After initial bulk read, set accurate timestamps from the
+                // actual event data and match against spawn entries.
                 if (wasInitialRead) {
                     const sub = session.subAgents.get(sf.agentId);
                     if (sub) {
                         sub.state = 'idle';
+
+                        // Set timestamps from actual event data
+                        if (minTs !== Infinity) {
+                            sub.spawnTime = minTs;
+                            sub.lastActivityTime = maxTs;
+                        } else {
+                            sub.spawnTime = Date.now();
+                            sub.lastActivityTime = Date.now();
+                        }
+
+                        // Now that we have real timestamps, try to match
+                        // against a spawn entry from the main transcript.
+                        // Match by closest spawn time to avoid mis-pairing.
+                        if (sub._needsMatch) {
+                            delete sub._needsMatch;
+                            this._matchSpawnEntry(session, sf.agentId, sub);
+                        }
+
                         session.dirty = true;
                     }
                 } else if (hadNewData) {

@@ -46,6 +46,7 @@ export class DetailPanel {
         const aside = document.createElement('aside');
         aside.id = 'detail-panel';
         aside.className = 'detail-panel';
+        aside.setAttribute('aria-label', 'Session detail panel');
 
         // Header
         const header = document.createElement('div');
@@ -57,8 +58,9 @@ export class DetailPanel {
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'dp-close';
-        closeBtn.textContent = '\u00D7'; // ×
+        closeBtn.innerHTML = '<span aria-hidden="true">\u00D7</span>';
         closeBtn.title = 'Close panel';
+        closeBtn.setAttribute('aria-label', 'Close detail panel');
         closeBtn.addEventListener('click', () => this.hide());
         header.appendChild(closeBtn);
 

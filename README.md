@@ -4,14 +4,18 @@ Real-time visual monitor for Claude Code agent sessions. Each active session app
 
 ## Quick Start
 
-Requires Python 3.10+. No packages to install.
+Requires Python 3.10+ or Node.js v18+. No packages to install — zero external dependencies.
 
 ```bash
 cd workchart_office
-python serve.py
+python serve.py            # Python (recommended)
+# or
+node serve.js              # Node.js (alternative)
 ```
 
 Your browser opens automatically to **http://localhost:3200**. The server scans all projects under `~/.claude/projects/` and starts displaying active sessions. Use the project filter dropdown to focus on a specific project.
+
+Works on **Windows**, **macOS**, and **Linux**.
 
 ### Options
 
@@ -20,17 +24,22 @@ python serve.py --port 8080    # Use a different port
 PORT=8080 python serve.py      # Or via environment variable
 ```
 
-### Alternative: Node.js
+### Configuration File
 
-If you prefer Node.js (v18+):
+If your Claude Code projects directory is not at the default `~/.claude/projects/` location, create a `workchart.config.json` file in the same directory as the server scripts:
 
-```bash
-node serve.js
+```json
+{
+  "projectsPath": "/custom/path/to/.claude/projects",
+  "port": 3200
+}
 ```
 
-Then open http://localhost:3200 manually.
+All fields are optional. Tilde (`~`) expansion is supported in `projectsPath`. CLI arguments and environment variables take precedence over config file values.
 
 ## What You See
+
+![WorkChart Office in action](interface.png)
 
 Each session box contains:
 
@@ -114,5 +123,6 @@ workchart_office/
 
 ## Requirements
 
-- Python 3.10+ (no pip packages needed)
+- Python 3.10+ or Node.js v18+ (no packages needed for either)
 - Any modern browser (Chrome, Edge, Firefox, Safari)
+- Works on Windows, macOS, and Linux

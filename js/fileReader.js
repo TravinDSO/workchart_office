@@ -207,8 +207,9 @@ export class FileReaderLayer {
                 project: f.project || null,
                 mtime: f.mtime || null,
             }));
-        } catch (err) {
-            console.error('HTTP listJsonlFiles failed:', err);
+        } catch {
+            // Network error during polling — transient and expected when
+            // the server is restarting or temporarily unreachable.
             return [];
         }
     }
@@ -226,8 +227,8 @@ export class FileReaderLayer {
                 // In HTTP mode, handle is the relative path so /api/read can find it
                 handle: `${sessionId}/subagents/${f.name}`,
             }));
-        } catch (err) {
-            console.error('HTTP listSubAgentFiles failed:', err);
+        } catch {
+            // Network error — transient, handled by poll retry
             return [];
         }
     }
@@ -243,8 +244,8 @@ export class FileReaderLayer {
                 lines: data.lines || [],
                 newOffset: data.newOffset ?? offset,
             };
-        } catch (err) {
-            console.error('HTTP readNewLines failed:', err);
+        } catch {
+            // Network error — transient, handled by poll retry
             return { lines: [], newOffset: offset };
         }
     }

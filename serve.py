@@ -9,6 +9,15 @@ Usage:
     python serve.py
     python serve.py --port 8080
 
+Configuration:
+    Place a workchart.config.json file in the same directory as this script
+    to override defaults:
+        {
+            "projectsPath": "/custom/path/to/.claude/projects",
+            "port": 3200
+        }
+    All fields are optional. CLI arguments override config file values.
+
 No external dependencies — uses only the Python standard library.
 """
 
@@ -25,9 +34,31 @@ from urllib.parse import urlparse, parse_qs
 # Configuration
 # ---------------------------------------------------------------------------
 
-PORT = int(os.environ.get("PORT", 3200))
 STATIC_DIR = Path(__file__).parent.resolve()
-PROJECTS_BASE = Path.home() / ".claude" / "projects"
+
+
+def _load_config() -> dict:
+    """Load optional workchart.config.json from the same directory as this script."""
+    config_path = STATIC_DIR / "workchart.config.json"
+    if config_path.is_file():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  WARNING: Failed to read {config_path}: {e}")
+    return {}
+
+
+_config = _load_config()
+
+PORT = int(os.environ.get("PORT", _config.get("port", 3200)))
+
+# Resolve projectsPath: config value (with ~ expansion) or default
+_configured_path = _config.get("projectsPath")
+if _configured_path:
+    PROJECTS_BASE = Path(os.path.expanduser(_configured_path)).resolve()
+else:
+    PROJECTS_BASE = Path.home() / ".claude" / "projects"
 
 MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -318,6 +349,11 @@ def main():
             print("  --port, -p PORT    Server port (default: 3200)")
             print()
             print("Monitors all projects under ~/.claude/projects/")
+            print()
+            print("Configuration:")
+            print("  Place workchart.config.json in the same directory as serve.py")
+            print('  to override the projects path or default port:')
+            print('    { "projectsPath": "/path/to/.claude/projects", "port": 3200 }')
             sys.exit(0)
         else:
             print(f"Unknown argument: {args[i]}")
@@ -334,7 +370,8 @@ def main():
     print("  ================")
     print(f"  URL:          http://localhost:{PORT}/")
     print(f"  Static dir:   {STATIC_DIR}")
-    print(f"  Projects dir: {PROJECTS_BASE}")
+    projects_src = "(from config)" if _configured_path else "(default)"
+    print(f"  Projects dir: {PROJECTS_BASE}  {projects_src}")
     print(f"  Projects:     {project_count} found")
     if PROJECTS_BASE.is_dir():
         for d in sorted(PROJECTS_BASE.iterdir()):

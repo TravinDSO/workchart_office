@@ -13,6 +13,15 @@
  * Environment variables:
  *   PORT — Server port (default: 3200)
  *
+ * Configuration:
+ *   Place a workchart.config.json file in the same directory as this script
+ *   to override defaults:
+ *     {
+ *       "projectsPath": "/custom/path/to/.claude/projects",
+ *       "port": 3200
+ *     }
+ *   All fields are optional. CLI arguments override config file values.
+ *
  * API Endpoints:
  *   GET /api/projects                              — List all project directories
  *   GET /api/sessions?project=<name>               — List .jsonl files (all projects if omitted)
@@ -30,13 +39,37 @@ const os = require('os');
 // Configuration
 // ---------------------------------------------------------------------------
 
-let PORT = parseInt(process.env.PORT, 10) || 3200;
-
 /** Directory containing the static web files (same directory as this script) */
 const STATIC_DIR = __dirname;
 
-/** Base directory containing all Claude Code project directories */
-const PROJECTS_BASE = path.join(os.homedir(), '.claude', 'projects');
+/**
+ * Load optional workchart.config.json from the same directory as this script.
+ * @returns {object}
+ */
+function loadConfig() {
+    const configPath = path.join(STATIC_DIR, 'workchart.config.json');
+    try {
+        if (fs.existsSync(configPath)) {
+            return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        }
+    } catch (err) {
+        console.log(`  WARNING: Failed to read ${configPath}: ${err.message}`);
+    }
+    return {};
+}
+
+const _config = loadConfig();
+
+let PORT = parseInt(process.env.PORT, 10) || _config.port || 3200;
+
+/**
+ * Resolve projectsPath: config value (with ~ expansion) or default.
+ * @type {string}
+ */
+const _configuredPath = _config.projectsPath || null;
+const PROJECTS_BASE = _configuredPath
+    ? path.resolve(_configuredPath.replace(/^~(?=[/\\]|$)/, os.homedir()))
+    : path.join(os.homedir(), '.claude', 'projects');
 
 // ---------------------------------------------------------------------------
 // MIME types for static file serving
@@ -418,6 +451,11 @@ function main() {
             console.log('  --port, -p PORT    Server port (default: 3200)');
             console.log('');
             console.log('Monitors all projects under ~/.claude/projects/');
+            console.log('');
+            console.log('Configuration:');
+            console.log('  Place workchart.config.json in the same directory as serve.js');
+            console.log('  to override the projects path or default port:');
+            console.log('    { "projectsPath": "/path/to/.claude/projects", "port": 3200 }');
             process.exit(0);
         } else {
             console.log(`Unknown argument: ${args[i]}`);
@@ -434,12 +472,13 @@ function main() {
     }
 
     server.listen(PORT, () => {
+        const projectsSrc = _configuredPath ? '(from config)' : '(default)';
         console.log('');
         console.log('  WorkChart Office');
         console.log('  ================');
         console.log(`  URL:          http://localhost:${PORT}/`);
         console.log(`  Static dir:   ${STATIC_DIR}`);
-        console.log(`  Projects dir: ${PROJECTS_BASE}`);
+        console.log(`  Projects dir: ${PROJECTS_BASE}  ${projectsSrc}`);
         console.log(`  Projects:     ${projectCount} found`);
         if (fs.existsSync(PROJECTS_BASE)) {
             const entries = fs.readdirSync(PROJECTS_BASE, { withFileTypes: true });

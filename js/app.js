@@ -55,6 +55,12 @@ const minimizedSessions = new Set();
 /** @type {boolean} When true, stale/completed sessions are shown */
 let showAll = false;
 
+/** @type {boolean} True during the startup grace period while waiting for first poll results */
+let startupScanning = false;
+
+/** @type {number|null} Timer handle for the startup grace period */
+let startupTimer = null;
+
 /** @type {number} Last timestamp from requestAnimationFrame */
 let lastTimestamp = 0;
 
@@ -147,17 +153,25 @@ async function tryAutoConnect() {
     try {
         const resp = await fetch('/api/projects');
         if (resp.ok) {
-            // serve.py is running — switch to HTTP mode and start polling
+            // serve.py is running — switch to HTTP mode
             fileReader.mode = 'http';
             clearDemoSessions();
             setConnected(true);
-            sessionManager.start();
-            pollStatusEl.textContent = 'Polling: active (2s)';
-            pollStatusEl.classList.add('active');
 
             // Populate the project filter dropdown
             const data = await resp.json();
             populateProjectFilter(data.projects || []);
+
+            // Show scanning animation, then start polling after a short
+            // delay so the animation is visible (localhost polls complete
+            // in milliseconds, too fast for the user to see otherwise).
+            showStartupScanning();
+
+            setTimeout(() => {
+                sessionManager.start();
+                pollStatusEl.textContent = 'Polling: active (2s)';
+                pollStatusEl.classList.add('active');
+            }, 2000);
             return;
         }
     } catch {
@@ -209,6 +223,7 @@ function handleProjectFilterChange() {
 function toggleShowAll() {
     showAll = !showAll;
     showAllBtn.classList.toggle('active', showAll);
+    showAllBtn.setAttribute('aria-pressed', showAll ? 'true' : 'false');
     showAllBtn.textContent = showAll ? 'Hide Stale' : 'Show All';
 
     // Sync flag to all renderers so completed sub-agents are shown/hidden
@@ -313,6 +328,7 @@ function createSessionBox(sessionId, project) {
     minBtn.className = 'minimize-btn';
     minBtn.textContent = '\u2014'; // em dash —
     minBtn.title = 'Minimize session';
+    minBtn.setAttribute('aria-label', 'Minimize session');
     minBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         minimizeSession(sessionId);
@@ -369,6 +385,8 @@ function createSessionBox(sessionId, project) {
     const restoreBtn = document.createElement('button');
     restoreBtn.className = 'restore-btn';
     restoreBtn.textContent = 'Restore';
+    restoreBtn.title = 'Restore session to grid';
+    restoreBtn.setAttribute('aria-label', 'Restore session');
     restoreBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         restoreSession(sessionId);
@@ -463,20 +481,82 @@ function restoreSession(sessionId) {
 // Empty state
 // ---------------------------------------------------------------------------
 
-function showEmptyState() {
-    if (!DEMO_MODE && sessionGrid.children.length === 0) {
-        const empty = document.createElement('div');
-        empty.classList.add('empty-state');
-        empty.id = 'empty-state';
-        empty.innerHTML = `
-            <div class="empty-icon">&#9694;</div>
-            <div class="empty-title">No sessions loaded</div>
-            <div class="empty-subtitle">
-                Run <code>python serve.py</code> to monitor all Claude Code projects.
-            </div>
-        `;
-        sessionGrid.appendChild(empty);
+/**
+ * Show a scanning animation during startup while waiting for
+ * the first poll cycles to discover sessions.
+ */
+function showStartupScanning() {
+    removeEmptyState();
+    startupScanning = true;
+
+    const el = document.createElement('div');
+    el.classList.add('empty-state', 'startup-scanning');
+    el.id = 'startup-scanning';
+    el.innerHTML = `
+        <div class="scanning-animation">
+            <span class="scanning-dot"></span>
+            <span class="scanning-dot"></span>
+            <span class="scanning-dot"></span>
+        </div>
+        <div class="empty-title">Scanning for sessions</div>
+        <div class="empty-subtitle">Looking for active Claude Code sessions\u2026</div>
+    `;
+    sessionGrid.appendChild(el);
+
+    // Grace period: after 10 seconds (5 poll cycles), end the scanning phase
+    startupTimer = setTimeout(() => {
+        endStartupScanning();
+    }, 10000);
+}
+
+/**
+ * End the startup scanning phase and show the appropriate state.
+ */
+function endStartupScanning() {
+    startupScanning = false;
+    if (startupTimer) {
+        clearTimeout(startupTimer);
+        startupTimer = null;
     }
+    const el = document.getElementById('startup-scanning');
+    if (el) el.remove();
+
+    // Now allow empty state to show if appropriate
+    updateSessionCount();
+}
+
+function showEmptyState(variant) {
+    // Don't show empty state while startup scanning is active
+    if (startupScanning) return;
+
+    // Remove any existing empty state first
+    removeEmptyState();
+
+    let title, subtitle;
+    if (variant === 'no-visible') {
+        // Server connected, sessions exist but all are stale/filtered
+        title = 'No active sessions';
+        subtitle = 'All sessions are stale or filtered out. Click <strong>Show All</strong> to reveal them.';
+    } else if (variant === 'connected-empty') {
+        // Server connected but no sessions at all
+        title = 'No sessions found';
+        subtitle = 'The server is connected but no Claude Code sessions were discovered yet. Start a session and it will appear here.';
+    } else {
+        // Default: no server
+        if (DEMO_MODE) return; // Demo mode handles its own display
+        title = 'No sessions loaded';
+        subtitle = 'Run <code>python serve.py</code> to monitor all Claude Code projects.';
+    }
+
+    const empty = document.createElement('div');
+    empty.classList.add('empty-state');
+    empty.id = 'empty-state';
+    empty.innerHTML = `
+        <div class="empty-icon">&#9694;</div>
+        <div class="empty-title">${title}</div>
+        <div class="empty-subtitle">${subtitle}</div>
+    `;
+    sessionGrid.appendChild(empty);
 }
 
 function removeEmptyState() {
@@ -484,6 +564,12 @@ function removeEmptyState() {
     if (empty) {
         empty.remove();
     }
+    // Remove scanning visual if sessions appeared, but keep the
+    // startupScanning flag active — only the timer clears it.
+    // This prevents "No Sessions" from flashing while stale sessions
+    // are still being discovered during the grace period.
+    const scanning = document.getElementById('startup-scanning');
+    if (scanning) scanning.remove();
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +583,61 @@ function setConnected(connected) {
     } else {
         statusIndicator.className = 'disconnected';
         statusIndicator.querySelector('.status-text').textContent = 'Disconnected';
+    }
+}
+
+/**
+ * Check the session manager's connection health and update the status
+ * indicator if the server has become unreachable or recovered.
+ * Called from the render loop, throttled internally to run every ~2s.
+ */
+let _lastHealthCheck = 0;
+function updateConnectionHealth() {
+    if (!sessionManager || !sessionManager._running) return;
+
+    const now = Date.now();
+    if (now - _lastHealthCheck < 2000) return;
+    _lastHealthCheck = now;
+
+    if (sessionManager.consecutiveErrors >= 3) {
+        statusIndicator.className = 'reconnecting';
+        statusIndicator.querySelector('.status-text').textContent = 'Reconnecting...';
+        pollStatusEl.textContent = 'Server unreachable';
+        pollStatusEl.classList.remove('active');
+    } else if (sessionManager.consecutiveErrors === 0 && sessionManager.lastSuccessfulPoll > 0) {
+        if (statusIndicator.className !== 'connected') {
+            statusIndicator.className = 'connected';
+            statusIndicator.querySelector('.status-text').textContent = 'Connected';
+            pollStatusEl.textContent = 'Polling: active (2s)';
+            pollStatusEl.classList.add('active');
+        }
+    }
+}
+
+/**
+ * Update the browser tab title to reflect the current session activity.
+ * Shows count of active sessions so users can tell at a glance from other tabs.
+ */
+function updateDocumentTitle() {
+    let activeCount = 0;
+    let waitingCount = 0;
+    for (const [, session] of sessionManager.getSessions()) {
+        if (session.mainAgent.state === 'active') activeCount++;
+        else if (session.mainAgent.state === 'waiting') waitingCount++;
+    }
+    for (const [, demoInfo] of demoSessions) {
+        if (demoInfo.session.mainAgent.state === 'active') activeCount++;
+        else if (demoInfo.session.mainAgent.state === 'waiting') waitingCount++;
+    }
+
+    const parts = [];
+    if (activeCount > 0) parts.push(`${activeCount} active`);
+    if (waitingCount > 0) parts.push(`${waitingCount} waiting`);
+
+    if (parts.length > 0) {
+        document.title = `WorkChart Office (${parts.join(', ')})`;
+    } else {
+        document.title = 'WorkChart Office';
     }
 }
 
@@ -521,6 +662,15 @@ function updateSessionCount() {
         text += ` in ${label}`;
     }
     sessionCountEl.textContent = text;
+
+    // Show contextual empty state when all sessions are hidden
+    if (visible === 0 && total > 0 && demoSessions.size === 0) {
+        showEmptyState('no-visible');
+    } else if (visible === 0 && total === 0 && sessionManager._running && demoSessions.size === 0) {
+        showEmptyState('connected-empty');
+    } else {
+        removeEmptyState();
+    }
 
     // Hide projects whose sessions are ALL stale from the dropdown
     updateProjectDropdown();
@@ -573,6 +723,9 @@ function renderLoop(timestamp) {
     const dt = timestamp - lastTimestamp;
     lastTimestamp = timestamp;
 
+    // Check server connection health (throttled internally)
+    updateConnectionHealth();
+
     // Render real sessions
     for (const [sessionId, renderer] of boxRenderers) {
         const session = sessionManager.getSession(sessionId);
@@ -583,6 +736,8 @@ function renderLoop(timestamp) {
             }
             renderer.render(session, dt);
             updateSessionBoxClass(sessionId, session);
+            // Sort by activity: active first, then waiting, then idle/stale
+            updateSessionSortOrder(sessionId, session);
             // Update detail panel if it's showing this session
             if (detailPanel && detailPanel.activeSessionId === sessionId) {
                 detailPanel.update(session);
@@ -601,6 +756,7 @@ function renderLoop(timestamp) {
             updateDemoState(demoInfo, dt);
             renderer.render(demoInfo.session, dt);
             updateSessionBoxClass(sessionId, demoInfo.session);
+            updateSessionSortOrder(sessionId, demoInfo.session);
             // Update detail panel if it's showing this demo session
             if (detailPanel && detailPanel.activeSessionId === sessionId) {
                 detailPanel.update(demoInfo.session);
@@ -608,9 +764,42 @@ function renderLoop(timestamp) {
         }
     }
 
+    // Update browser tab title periodically (piggybacks on health check throttle)
+    updateDocumentTitle();
+
     if (renderLoopActive) {
         requestAnimationFrame(renderLoop);
     }
+}
+
+/**
+ * Set CSS order on a session box so active sessions sort first,
+ * waiting sessions second, and idle/stale sessions last.
+ * Within each group, more recently active sessions appear first.
+ */
+function updateSessionSortOrder(sessionId, session) {
+    const box = document.querySelector(`[data-session-id="${sessionId}"]`);
+    if (!box || box.classList.contains('minimized')) return;
+
+    // Priority: active=0, waiting=1, idle=2, completed=3
+    let priority;
+    if (session.isComplete) {
+        priority = 3;
+    } else if (session.mainAgent.state === 'active') {
+        priority = 0;
+    } else if (session.mainAgent.state === 'waiting') {
+        priority = 1;
+    } else {
+        priority = 2;
+    }
+
+    // Use inverse recency within each priority band.
+    // lastDataTime is in ms; convert to seconds and cap at 9999 for order value.
+    const recencySeconds = Math.floor((Date.now() - session.lastDataTime) / 1000);
+    const clampedRecency = Math.min(recencySeconds, 9999);
+
+    // CSS order: priority * 10000 + recency (lower = appears first)
+    box.style.order = priority * 10000 + clampedRecency;
 }
 
 // ---------------------------------------------------------------------------

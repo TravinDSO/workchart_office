@@ -7,28 +7,29 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-    <header id="app-header">
+    <header id="app-header" role="banner">
         <h1>WorkChart Office</h1>
-        <div id="controls">
-            <button id="show-all-btn" class="header-btn" title="Show all sessions including stale and completed">Show All</button>
-            <select id="project-filter">
+        <nav id="controls" aria-label="Session controls">
+            <button id="show-all-btn" class="header-btn" title="Show all sessions including stale and completed" aria-pressed="false">Show All</button>
+            <label for="project-filter" class="visually-hidden">Filter by project</label>
+            <select id="project-filter" aria-label="Filter by project">
                 <option value="">All Projects</option>
             </select>
-            <span id="status-indicator" class="disconnected">
-                <span class="status-dot"></span>
+            <span id="status-indicator" class="disconnected" role="status" aria-live="polite" title="Server connection status">
+                <span class="status-dot" aria-hidden="true"></span>
                 <span class="status-text">Disconnected</span>
             </span>
-        </div>
+        </nav>
     </header>
 
-    <main id="session-grid">
+    <main id="session-grid" aria-label="Session boxes">
         <!-- Dynamically populated with session boxes -->
     </main>
 
-    <div id="minimized-tray"></div>
+    <div id="minimized-tray" role="region" aria-label="Minimized sessions"></div>
 
-    <footer id="app-footer">
-        <span id="session-count">0 sessions</span>
+    <footer id="app-footer" role="contentinfo">
+        <span id="session-count" aria-live="polite">0 sessions</span>
         <span id="poll-status">Polling: inactive</span>
     </footer>
 

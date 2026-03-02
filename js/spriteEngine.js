@@ -23,6 +23,19 @@ const PALETTE = {
     7: '#ffffff',  // white (eyes, etc.)
 };
 
+/**
+ * Pre-parsed palette colors as {r, g, b} objects.
+ * Avoids repeated parseInt calls during pixel rendering.
+ */
+const PALETTE_RGB = {};
+for (const [idx, hex] of Object.entries(PALETTE)) {
+    PALETTE_RGB[idx] = {
+        r: parseInt(hex.slice(1, 3), 16),
+        g: parseInt(hex.slice(3, 5), 16),
+        b: parseInt(hex.slice(5, 7), 16),
+    };
+}
+
 // ---------------------------------------------------------------------------
 // HUMAN sprite — 32x32 silhouette of a person (head + shoulders + torso)
 // Matches the reference image style: dark solid silhouette.
@@ -447,28 +460,26 @@ export class SpriteEngine {
     _renderPixelData(ctx, pixelData, width, height) {
         const imageData = ctx.createImageData(width, height);
         const data = imageData.data;
+        // Magenta fallback for unknown palette indices
+        const fallback = { r: 255, g: 0, b: 255 };
 
         for (let row = 0; row < height; row++) {
+            const rowData = pixelData[row];
+            if (!rowData) continue;
             for (let col = 0; col < width; col++) {
-                const paletteIdx = pixelData[row]?.[col] ?? 0;
+                const paletteIdx = rowData[col] ?? 0;
                 const offset = (row * width + col) * 4;
 
                 if (paletteIdx === 0) {
-                    // Transparent
-                    data[offset]     = 0;
-                    data[offset + 1] = 0;
-                    data[offset + 2] = 0;
-                    data[offset + 3] = 0;
-                } else {
-                    const hex = PALETTE[paletteIdx] || '#ff00ff'; // magenta fallback
-                    const r = parseInt(hex.slice(1, 3), 16);
-                    const g = parseInt(hex.slice(3, 5), 16);
-                    const b = parseInt(hex.slice(5, 7), 16);
-                    data[offset]     = r;
-                    data[offset + 1] = g;
-                    data[offset + 2] = b;
-                    data[offset + 3] = 255;
+                    // Transparent — leave as 0,0,0,0 (imageData is zeroed)
+                    continue;
                 }
+
+                const rgb = PALETTE_RGB[paletteIdx] || fallback;
+                data[offset]     = rgb.r;
+                data[offset + 1] = rgb.g;
+                data[offset + 2] = rgb.b;
+                data[offset + 3] = 255;
             }
         }
 
