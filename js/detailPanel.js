@@ -171,7 +171,6 @@ export class DetailPanel {
 
     _renderHuman(session) {
         this._setTitle('Human');
-        this._setActions([]);
         const status = session.humanActive ? 'active' : 'idle';
         const sessionName = session.customTitle || session.slug || session.sessionId.substring(0, 16);
         const project = session.projectLabel || session.project || '—';
@@ -181,6 +180,16 @@ export class DetailPanel {
             { label: 'Session', value: sessionName },
             { label: 'Project', value: project },
         ]);
+
+        this._setActions([
+            {
+                label: 'View Report',
+                className: 'dp-action-btn dp-action-report',
+                title: 'Open full session report in a new tab',
+                onClick: () => this._openReport(session),
+            },
+        ]);
+
         this._renderLog(session.humanLog || []);
     }
 
@@ -381,6 +390,15 @@ export class DetailPanel {
             btn.addEventListener('click', action.onClick);
             this._actionsEl.appendChild(btn);
         }
+    }
+
+    /**
+     * Open the session report page in a new browser tab.
+     */
+    _openReport(session) {
+        if (!session.project || !session.sessionId) return;
+        const url = `/report.html?project=${encodeURIComponent(session.project)}&session=${encodeURIComponent(session.sessionId)}`;
+        window.open(url, '_blank');
     }
 
     /**

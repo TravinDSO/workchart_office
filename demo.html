@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WorkChart Office — Demo &amp; Visual Key</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        /* ---------- Demo-specific styles ---------- */
+
+        /* Wrapper around each session box with annotation label */
+        .demo-box-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .demo-box-label {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.78rem;
+            color: #7777aa;
+            padding: 0 4px;
+            line-height: 1.4;
+        }
+
+        .demo-box-label strong {
+            color: #aaaacc;
+            font-weight: 600;
+        }
+
+        .demo-box-label .demo-tag {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+
+        .demo-tag.tag-active {
+            background: rgba(0, 255, 136, 0.15);
+            color: #00ff88;
+        }
+
+        .demo-tag.tag-waiting {
+            background: rgba(255, 170, 0, 0.15);
+            color: #ffaa00;
+        }
+
+        .demo-tag.tag-idle {
+            background: rgba(255, 255, 255, 0.06);
+            color: #888;
+        }
+
+        .demo-tag.tag-completed {
+            background: rgba(255, 255, 255, 0.06);
+            color: #555577;
+        }
+
+        .demo-tag.tag-stale {
+            background: rgba(255, 68, 68, 0.15);
+            color: #ff4444;
+        }
+
+        /* ---------- Legend Section ---------- */
+        #legend {
+            padding: 24px;
+            border-top: 1px solid #2a2a4a;
+            background-color: #16162a;
+        }
+
+        #legend h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 20px;
+            letter-spacing: 0.02em;
+        }
+
+        .legend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+        }
+
+        .legend-card {
+            background-color: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .legend-card h3 {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #aaaacc;
+            margin-bottom: 12px;
+        }
+
+        .legend-card p {
+            font-size: 0.8rem;
+            color: #7777aa;
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .legend-sprites {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .legend-sprite-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-sprite-item canvas {
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+
+        .legend-sprite-item span {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.7rem;
+            color: #7777aa;
+        }
+
+        /* Legend items — dot + label rows */
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.78rem;
+            color: #aaa;
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .legend-swatch {
+            width: 32px;
+            height: 10px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .legend-line-sample {
+            width: 40px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+
+        .legend-border-sample {
+            width: 48px;
+            height: 32px;
+            border-radius: 6px;
+            flex-shrink: 0;
+        }
+
+        /* Status bar annotation */
+        .legend-status-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.75rem;
+            margin-bottom: 8px;
+        }
+
+        .legend-status-bar .sb-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .legend-status-bar .sb-project {
+            color: rgba(255, 255, 255, 0.35);
+        }
+
+        .legend-status-bar .sb-sep {
+            width: 3px;
+            height: 3px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            flex-shrink: 0;
+        }
+
+        .legend-status-bar .sb-slug {
+            color: #00ff88;
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .legend-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header id="app-header" role="banner">
+        <h1>WorkChart Office — Demo &amp; Visual Key</h1>
+        <nav id="controls" aria-label="Demo controls">
+            <span style="
+                padding: 4px 12px;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+                font-size: 0.75rem;
+                color: #ffaa00;
+                background: rgba(255, 170, 0, 0.1);
+                border: 1px solid rgba(255, 170, 0, 0.3);
+                border-radius: 4px;
+            ">Demo Mode</span>
+        </nav>
+    </header>
+
+    <main id="session-grid" aria-label="Demo session boxes">
+        <!-- Populated by script -->
+    </main>
+
+    <section id="legend">
+        <h2>Visual Key</h2>
+        <div class="legend-grid">
+            <!-- Card 1: Sprites -->
+            <div class="legend-card" id="legend-sprites">
+                <h3>Sprites</h3>
+                <div class="legend-sprites" id="sprite-canvases">
+                    <!-- Filled by script -->
+                </div>
+                <p>Human (user), Main Agent (Optimus Prime), and Sub-Agent (worker drone). All sprites are programmatic pixel art — no image files.</p>
+            </div>
+
+            <!-- Card 2: Sprite Glows -->
+            <div class="legend-card">
+                <h3>Sprite Glows</h3>
+                <div class="legend-item">
+                    <div class="legend-swatch" style="background: radial-gradient(circle, rgba(0,255,136,0.3), transparent);"></div>
+                    <span>Green glow = actively working</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-swatch" style="background: radial-gradient(circle, rgba(255,170,0,0.3), transparent);"></div>
+                    <span>Amber glow = waiting for user input</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-swatch" style="background: radial-gradient(circle, rgba(255,255,255,0.05), transparent);"></div>
+                    <span>No glow = idle</span>
+                </div>
+            </div>
+
+            <!-- Card 3: Connection Line -->
+            <div class="legend-card">
+                <h3>Connection Line</h3>
+                <p>Vertical line between Human and Agent indicates communication state.</p>
+                <div class="legend-item">
+                    <canvas class="legend-line-sample" id="line-active" width="40" height="20"></canvas>
+                    <span>Active: green dashes + arrowhead (animated)</span>
+                </div>
+                <div class="legend-item">
+                    <canvas class="legend-line-sample" id="line-waiting" width="40" height="20"></canvas>
+                    <span>Waiting: pulsing amber dashes</span>
+                </div>
+                <div class="legend-item">
+                    <canvas class="legend-line-sample" id="line-idle" width="40" height="20"></canvas>
+                    <span>Idle: faint grey dots</span>
+                </div>
+            </div>
+
+            <!-- Card 4: Speech Bubble -->
+            <div class="legend-card">
+                <h3>Speech Bubble</h3>
+                <p>A pulsing "?" bubble appears near the agent when it awaits user input. See the <strong>"Adding dark mode"</strong> session box above for a live example.</p>
+            </div>
+
+            <!-- Card 5: Sub-Agent Status Dots -->
+            <div class="legend-card">
+                <h3>Sub-Agent Status Dots</h3>
+                <p>Small dots between the sprite and label indicate each sub-agent's state.</p>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #00ff88; box-shadow: 0 0 4px rgba(0,255,136,0.5);"></div>
+                    <span>Green = actively working</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #ffaa00;"></div>
+                    <span>Amber = idle / waiting</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #666666;"></div>
+                    <span>Grey = completed</span>
+                </div>
+            </div>
+
+            <!-- Card 6: Status Bar -->
+            <div class="legend-card">
+                <h3>Status Bar</h3>
+                <p>Bottom bar of each session box. Shows state dot, project label, and session name.</p>
+                <div class="legend-status-bar">
+                    <div class="sb-dot" style="background: #00ff88;"></div>
+                    <span class="sb-project">my-project</span>
+                    <div class="sb-sep"></div>
+                    <span class="sb-slug" style="color: #00ff88;">Refactoring auth module</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #00ff88;"></div>
+                    <span>Green dot + text = active</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #ffaa00;"></div>
+                    <span>Amber dot + text = waiting</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot" style="background: #666666;"></div>
+                    <span>Grey dot + text = idle</span>
+                </div>
+            </div>
+
+            <!-- Card 7: Box Border States -->
+            <div class="legend-card">
+                <h3>Box Border States</h3>
+                <div class="legend-item">
+                    <div class="legend-border-sample" style="background: #1b6ca8; box-shadow: 0 2px 12px rgba(0,255,136,0.15), 0 2px 8px rgba(0,0,0,0.3);"></div>
+                    <span>Green glow = active session</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-border-sample" style="background: #1b6ca8; box-shadow: 0 2px 16px rgba(255,170,0,0.25), 0 2px 8px rgba(0,0,0,0.3);"></div>
+                    <span>Amber pulse = waiting for user (animated)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-border-sample" style="background: #1b6ca8; box-shadow: 0 0 0 2px #ff4444, 0 2px 8px rgba(0,0,0,0.3);"></div>
+                    <span>Red outline = stale 24h+ (no activity)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-border-sample" style="background: #1b6ca8; opacity: 0.5; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"></div>
+                    <span>50% opacity = completed session</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer id="app-footer" role="contentinfo">
+        <span id="session-count">8 demo sessions</span>
+        <span>Static demo — no server needed</span>
+    </footer>
+
+    <!-- Diagnostic: this non-module script runs immediately. If the module
+         fails to load (e.g. file:// CORS), this message stays visible. -->
+    <script>
+        document.getElementById('session-grid').innerHTML =
+            '<div class="empty-state" id="demo-loading">' +
+            '<div class="empty-title">Loading demo\u2026</div>' +
+            '<div class="empty-subtitle">If this message persists, open via ' +
+            '<code>http://localhost:3200/demo.html</code> (ES6 modules require HTTP).</div></div>';
+    </script>
+
+    <script type="module">
+        import { SpriteEngine } from './js/spriteEngine.js';
+        import { BoxRenderer } from './js/boxRenderer.js';
+
+        // Remove the loading diagnostic — if we get here, modules loaded OK
+        const _loading = document.getElementById('demo-loading');
+        if (_loading) _loading.remove();
+
+        try { // Wrap in try/catch to surface any runtime errors visually
+
+        // -------------------------------------------------------------------
+        // Initialize sprite engine
+        // -------------------------------------------------------------------
+        const spriteEngine = new SpriteEngine();
+        spriteEngine.init();
+
+        // -------------------------------------------------------------------
+        // Mock session factory
+        // -------------------------------------------------------------------
+        function createMockSession(id, slug, projectLabel, opts = {}) {
+            const subAgents = new Map();
+            if (opts.subAgents) {
+                for (const sa of opts.subAgents) {
+                    subAgents.set(sa.id, {
+                        state: sa.state,
+                        description: sa.description,
+                        lastTool: sa.lastTool || null,
+                        spawnTime: Date.now() - (sa.ageMs || 0),
+                    });
+                }
+            }
+            return {
+                sessionId: id,
+                slug: slug,
+                customTitle: '',
+                projectLabel: projectLabel,
+                project: projectLabel,
+                mainAgent: {
+                    state: opts.agentState || 'idle',
+                    currentTool: opts.currentTool || null,
+                    toolId: null,
+                },
+                subAgents: subAgents,
+                humanActive: opts.humanActive || false,
+                isComplete: opts.isComplete || false,
+                lastDataTime: opts.lastDataTime || Date.now(),
+                dirty: true,
+                // Logs (unused by renderer, but present for duck-typing)
+                humanLog: [],
+                mainAgentLog: [],
+                subAgentLogs: new Map(),
+            };
+        }
+
+        // -------------------------------------------------------------------
+        // 8 mock sessions
+        // -------------------------------------------------------------------
+        const mockSessions = [
+            // 1. Active session, user just prompted, tool in use
+            createMockSession('demo-01', 'Refactoring auth module', 'workchart-office', {
+                agentState: 'active',
+                currentTool: 'Edit',
+                humanActive: true,
+            }),
+
+            // 2. Active with mixed sub-agent states
+            createMockSession('demo-02', 'Building REST API', 'api-server', {
+                agentState: 'active',
+                currentTool: 'Bash',
+                subAgents: [
+                    { id: 'sa-02a', state: 'active', description: 'Exploring endpoint handlers', lastTool: 'Grep' },
+                    { id: 'sa-02b', state: 'idle', description: 'Reviewing test coverage' },
+                ],
+            }),
+
+            // 3. Waiting for user, speech bubble "?"
+            createMockSession('demo-03', 'Adding dark mode', 'frontend-app', {
+                agentState: 'waiting',
+                subAgents: [
+                    { id: 'sa-03a', state: 'completed', description: 'CSS variable extraction' },
+                ],
+            }),
+
+            // 4. Idle session, no sub-agents
+            createMockSession('demo-04', 'Fix login regression', 'auth-service', {
+                agentState: 'idle',
+            }),
+
+            // 5. Many sub-agents (tall box)
+            createMockSession('demo-05', 'Full test suite', 'workchart-office', {
+                agentState: 'active',
+                currentTool: 'Read',
+                subAgents: [
+                    { id: 'sa-05a', state: 'active', description: 'Unit test — parser module', lastTool: 'Bash' },
+                    { id: 'sa-05b', state: 'active', description: 'Unit test — renderer module', lastTool: 'Read' },
+                    { id: 'sa-05c', state: 'active', description: 'Integration test — API', lastTool: 'Bash' },
+                    { id: 'sa-05d', state: 'idle', description: 'E2E test — login flow' },
+                    { id: 'sa-05e', state: 'idle', description: 'E2E test — dashboard' },
+                    { id: 'sa-05f', state: 'completed', description: 'Lint pass — completed' },
+                ],
+            }),
+
+            // 6. Completed session (50% opacity)
+            createMockSession('demo-06', 'Deploy v2.1', 'infra', {
+                agentState: 'idle',
+                isComplete: true,
+            }),
+
+            // 7. Stale 24h+ (red border)
+            createMockSession('demo-07', 'Abandoned task', 'misc-tools', {
+                agentState: 'idle',
+                lastDataTime: Date.now() - (25 * 60 * 60 * 1000), // 25 hours ago
+            }),
+
+            // 8. All sub-agents completed (grey dots)
+            createMockSession('demo-08', 'Database migration', 'db-service', {
+                agentState: 'idle',
+                subAgents: [
+                    { id: 'sa-08a', state: 'completed', description: 'Schema diff analysis' },
+                    { id: 'sa-08b', state: 'completed', description: 'Migration script generation' },
+                    { id: 'sa-08c', state: 'completed', description: 'Rollback plan validation' },
+                ],
+            }),
+        ];
+
+        // -------------------------------------------------------------------
+        // Annotations for each box
+        // -------------------------------------------------------------------
+        const annotations = [
+            { tag: 'active', tagClass: 'tag-active', desc: 'Active session — user just prompted, tool in use (Edit)' },
+            { tag: 'active', tagClass: 'tag-active', desc: 'Active with 2 sub-agents (1 active, 1 idle)' },
+            { tag: 'waiting', tagClass: 'tag-waiting', desc: 'Waiting for user — speech bubble "?", pulsing amber border' },
+            { tag: 'idle', tagClass: 'tag-idle', desc: 'Idle session — faint connection line, no activity' },
+            { tag: 'active', tagClass: 'tag-active', desc: 'Many sub-agents — 3 active, 2 idle, 1 completed' },
+            { tag: 'completed', tagClass: 'tag-completed', desc: 'Completed session — 50% opacity' },
+            { tag: 'stale 24h+', tagClass: 'tag-stale', desc: 'Stale 24h+ — red border warning, no recent data' },
+            { tag: 'idle', tagClass: 'tag-idle', desc: 'All 3 sub-agents completed (grey dots)' },
+        ];
+
+        // CSS state classes for each box
+        const stateClasses = [
+            ['active'],
+            ['active'],
+            ['waiting'],
+            [],
+            ['active'],
+            ['completed'],
+            ['stale-24h'],
+            [],
+        ];
+
+        // -------------------------------------------------------------------
+        // Build DOM
+        // -------------------------------------------------------------------
+        const grid = document.getElementById('session-grid');
+        const entries = [];
+
+        mockSessions.forEach((session, i) => {
+            // Wrapper
+            const wrapper = document.createElement('div');
+            wrapper.className = 'demo-box-wrapper';
+
+            // Annotation label
+            const label = document.createElement('div');
+            label.className = 'demo-box-label';
+            label.innerHTML = `<strong>#${i + 1}</strong> ${annotations[i].desc} <span class="demo-tag ${annotations[i].tagClass}">${annotations[i].tag}</span>`;
+            wrapper.appendChild(label);
+
+            // Session box
+            const box = document.createElement('div');
+            box.className = 'session-box';
+            box.dataset.sessionId = session.sessionId;
+            for (const cls of stateClasses[i]) {
+                box.classList.add(cls);
+            }
+
+            // Canvas
+            const canvas = document.createElement('canvas');
+            box.appendChild(canvas);
+            wrapper.appendChild(box);
+            grid.appendChild(wrapper);
+
+            // Create renderer
+            const renderer = new BoxRenderer(canvas, spriteEngine);
+            renderer.showAllSubAgents = true;
+            entries.push({ session, renderer });
+        });
+
+        // -------------------------------------------------------------------
+        // Legend sprite canvases
+        // -------------------------------------------------------------------
+        const spriteContainer = document.getElementById('sprite-canvases');
+
+        function createLegendSprite(name, state, label, size) {
+            const item = document.createElement('div');
+            item.className = 'legend-sprite-item';
+
+            const canvas = document.createElement('canvas');
+            const displaySize = size * 2;
+            canvas.width = displaySize;
+            canvas.height = displaySize;
+            canvas.style.width = displaySize + 'px';
+            canvas.style.height = displaySize + 'px';
+            const ctx = canvas.getContext('2d');
+            // Draw sprite once at scale that fills the canvas
+            const scale = displaySize / (name === 'sub-agent' ? 16 : 32);
+            spriteEngine.draw(ctx, name, state, 0, 0, 0, scale);
+
+            item.appendChild(canvas);
+
+            const span = document.createElement('span');
+            span.textContent = label;
+            item.appendChild(span);
+
+            spriteContainer.appendChild(item);
+        }
+
+        createLegendSprite('human', 'active', 'Human (User)', 32);
+        createLegendSprite('main-agent', 'active', 'Main Agent', 32);
+        createLegendSprite('sub-agent', 'active', 'Sub-Agent', 16);
+
+        // -------------------------------------------------------------------
+        // Legend connection line samples
+        // -------------------------------------------------------------------
+        function drawLineSample(canvasId, style) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, 40, 20);
+            ctx.save();
+
+            if (style === 'active') {
+                const grad = ctx.createLinearGradient(0, 10, 40, 10);
+                grad.addColorStop(0, 'rgba(0, 255, 136, 0.5)');
+                grad.addColorStop(0.3, '#00ff88');
+                grad.addColorStop(0.7, '#00ff88');
+                grad.addColorStop(1, 'rgba(0, 255, 136, 0.5)');
+                ctx.strokeStyle = grad;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([8, 4]);
+            } else if (style === 'waiting') {
+                ctx.strokeStyle = 'rgba(255, 170, 0, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([6, 6]);
+            } else {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([4, 8]);
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(4, 10);
+            ctx.lineTo(36, 10);
+            ctx.stroke();
+
+            // Arrowhead for active
+            if (style === 'active') {
+                ctx.setLineDash([]);
+                ctx.fillStyle = '#00ff88';
+                ctx.beginPath();
+                ctx.moveTo(36, 10);
+                ctx.lineTo(28, 6);
+                ctx.lineTo(28, 14);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
+
+        drawLineSample('line-active', 'active');
+        drawLineSample('line-waiting', 'waiting');
+        drawLineSample('line-idle', 'idle');
+
+        // -------------------------------------------------------------------
+        // Render loop — static states, animated sprites
+        // -------------------------------------------------------------------
+        let lastT = performance.now();
+
+        function loop(t) {
+            const dt = t - lastT;
+            lastT = t;
+            for (const { session, renderer } of entries) {
+                renderer.render(session, dt);
+            }
+            requestAnimationFrame(loop);
+        }
+
+        requestAnimationFrame(loop);
+
+        // Update footer with actual count
+        document.getElementById('session-count').textContent = entries.length + ' demo sessions rendered';
+
+        } catch (err) {
+            // Show runtime errors visually on the page
+            const grid = document.getElementById('session-grid');
+            grid.innerHTML = '<div class="empty-state"><div class="empty-title" style="color:#ff4444;">Demo Error</div>' +
+                '<div class="empty-subtitle" style="color:#ff6b6b;">' + err.message + '</div>' +
+                '<pre style="color:#888;font-size:0.7rem;margin-top:12px;text-align:left;max-width:600px;overflow:auto;">' +
+                err.stack + '</pre></div>';
+        }
+    </script>
+</body>
+</html>

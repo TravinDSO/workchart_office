@@ -61,6 +61,44 @@ Each session box is split into two columns:
 
 When the server is running but no active Claude Code sessions are found, a "No sessions found" notification is displayed. Sessions appear automatically as Claude Code activity is detected.
 
+## Session Reports
+
+Click any **Human** sprite to open the detail panel, then click **View Report** to open a full session report in a new tab. The report includes:
+
+- **Session Info** — Name, project, duration, branch, tool counts
+- **Agent Catalog** — Main agent and all sub-agents with tool breakdowns
+- **Executive Summary** — AI-generated overview (requires `claude` CLI on PATH; gracefully falls back if unavailable)
+- **Timeline** — Chronological feed of all events, color-coded by type, click to expand
+- **Human vs AI Comparison** — Estimated human time per tool category, speed multiplier badge, and breakdown table
+
+The summary is cached in `sessionStorage` to avoid re-generating on page refresh.
+
+### Fixing "claude CLI not found on PATH"
+
+The executive summary requires that the `claude` command is on the PATH of the terminal running the server. If Claude Code is installed but the server can't find it, add the directory containing the `claude` binary to your PATH.
+
+**macOS / Linux**
+
+```bash
+# Find where claude lives
+which claude              # if it works from another terminal
+find / -name claude 2>/dev/null   # or search for it
+
+# Add its directory to your shell profile (zsh example):
+echo 'export PATH="/path/to/directory:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Windows**
+
+1. Find the folder containing `claude.exe` (check the terminal where Claude Code works)
+2. Open Start > search **"Environment Variables"** > Edit environment variables
+3. Under **User variables**, select **Path** > Edit > New
+4. Paste the folder path containing `claude.exe`
+5. Click OK on all dialogs
+
+After updating PATH, restart your terminal and the WorkChart Office server.
+
 ## Running Tests
 
 Visit http://localhost:3200/test.html while the server is running:
@@ -77,14 +115,17 @@ workchart_office/
 ├── serve.py                # Python server (recommended)
 ├── serve.js                # Node.js server (alternative)
 ├── index.html              # App entry point
+├── report.html             # Session report page (standalone)
 ├── test.html               # Browser-based test harness (90 tests)
 ├── css/
-│   └── styles.css          # Dark theme, responsive grid
+│   ├── styles.css          # Dark theme, responsive grid
+│   └── report.css          # Report page styles
 ├── js/
 │   ├── app.js              # Main init, render loop, session lifecycle
 │   ├── boxRenderer.js      # Canvas rendering for each session box
 │   ├── detailPanel.js      # Detail panel for inspecting session elements
 │   ├── fileReader.js       # HTTP API client for reading JSONL files
+│   ├── report.js           # Session report: data processing and rendering
 │   ├── sessionManager.js   # Session state tracking and polling
 │   ├── spriteEngine.js     # Pixel-art sprites and animation
 │   └── transcriptParser.js # JSONL record parsing
@@ -121,6 +162,8 @@ workchart_office/
 | `GET /api/sessions?project=<name>` | List `.jsonl` files (all projects if `project` omitted) |
 | `GET /api/read?project=<name>&file=<name>&offset=<n>` | Read new lines from byte offset |
 | `GET /api/subagents?project=<name>&session=<id>` | List sub-agent files for a session |
+| `GET /api/session-transcript?project=<name>&session=<id>` | Full transcript + sub-agent data for reports |
+| `POST /api/generate-summary` | AI-generated executive summary via `claude` CLI |
 | `GET /*` | Serve static files |
 
 ## Requirements

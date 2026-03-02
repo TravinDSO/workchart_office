@@ -164,6 +164,8 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
             return self.handle_read(params)
         if path == "/api/subagents":
             return self.handle_subagents(params)
+        if path == "/api/session-transcript":
+            return self.handle_session_transcript(params)
 
         # Static file
         self.handle_static(path)
@@ -311,6 +313,96 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             self.send_json(500, {"error": f"Failed to list sub-agents: {e}"})
 
+    # -- API: /api/session-transcript?project=<name>&session=<id> ---------
+
+    def handle_session_transcript(self, params):
+        project_name = params.get("project", [None])[0]
+        session_id = params.get("session", [None])[0]
+
+        if not project_name:
+            return self.send_json(400, {"error": "Missing 'project' parameter."})
+        if not session_id:
+            return self.send_json(400, {"error": "Missing 'session' parameter."})
+
+        proj_dir = self._resolve_project_dir(project_name)
+        if not proj_dir:
+            return self.send_json(404, {"error": "Project not found."})
+
+        # Sanitize session ID and build JSONL path
+        sanitized = os.path.basename(session_id)
+        jsonl_path = proj_dir / f"{sanitized}.jsonl"
+
+        if not jsonl_path.is_file():
+            return self.send_json(404, {"error": "Session file not found."})
+
+        try:
+            # Read and parse the main JSONL file
+            with open(jsonl_path, "r", encoding="utf-8") as f:
+                raw_text = f.read()
+
+            events = []
+            metadata = {}
+            for line in raw_text.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                    events.append(record)
+
+                    # Extract metadata from relevant records
+                    if isinstance(record, dict):
+                        if "slug" in record and "slug" not in metadata:
+                            metadata["slug"] = record["slug"]
+                        if "cwd" in record and "cwd" not in metadata:
+                            metadata["cwd"] = record["cwd"]
+                        if "gitBranch" in record and "gitBranch" not in metadata:
+                            metadata["gitBranch"] = record["gitBranch"]
+                        if "gitRepoUrl" in record and "gitRepoUrl" not in metadata:
+                            metadata["gitRepoUrl"] = record["gitRepoUrl"]
+                        if "version" in record and "version" not in metadata:
+                            metadata["version"] = record["version"]
+                        if "model" in record and "model" not in metadata:
+                            metadata["model"] = record["model"]
+                        if record.get("type") == "custom-title" and record.get("customTitle"):
+                            metadata["customTitle"] = record["customTitle"]
+                except json.JSONDecodeError:
+                    continue
+
+            # Read sub-agent transcript files
+            subagents_dir = proj_dir / sanitized / "subagents"
+            sub_agents = {}
+
+            if subagents_dir.is_dir():
+                for sa_file in subagents_dir.iterdir():
+                    if sa_file.is_file() and sa_file.suffix == ".jsonl":
+                        m = re.match(r"^agent-(.+)\.jsonl$", sa_file.name)
+                        agent_id = m.group(1) if m else sa_file.stem
+
+                        try:
+                            with open(sa_file, "r", encoding="utf-8") as f:
+                                sa_text = f.read()
+                            sa_records = []
+                            for sa_line in sa_text.split("\n"):
+                                sa_line = sa_line.strip()
+                                if not sa_line:
+                                    continue
+                                try:
+                                    sa_records.append(json.loads(sa_line))
+                                except json.JSONDecodeError:
+                                    continue
+                            sub_agents[agent_id] = sa_records
+                        except Exception:
+                            continue
+
+            self.send_json(200, {
+                "metadata": metadata,
+                "events": events,
+                "subAgents": sub_agents,
+            })
+        except Exception as e:
+            self.send_json(500, {"error": f"Failed to read transcript: {e}"})
+
     # -- POST routing -----------------------------------------------------
 
     def do_POST(self):
@@ -332,6 +424,8 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
             return self.handle_open_folder(body)
         if path == "/api/delete-session":
             return self.handle_delete_session(body)
+        if path == "/api/generate-summary":
+            return self.handle_generate_summary(body)
 
         self.send_json(404, {"error": "Not found."})
 
@@ -408,6 +502,45 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
             "ok": True,
             "deleted": {"jsonl": deleted_jsonl, "directory": deleted_dir},
         })
+
+    # -- API: POST /api/generate-summary ----------------------------------
+
+    def handle_generate_summary(self, body: dict):
+        transcript_summary = body.get("transcriptSummary")
+
+        if not transcript_summary or not isinstance(transcript_summary, str):
+            return self.send_json(400, {"error": "Missing or invalid 'transcriptSummary' parameter."})
+
+        prompt = (
+            "You are analyzing a Claude Code session transcript. "
+            "Generate a concise executive summary (3-5 paragraphs) covering: "
+            "1) What task was accomplished, "
+            "2) Key decisions and approach taken, "
+            "3) Tools and techniques used, "
+            "4) Notable challenges or interesting solutions, "
+            "5) Final outcome and any remaining work. "
+            "Here is the session transcript summary:\n\n"
+            + transcript_summary
+        )
+
+        try:
+            result = subprocess.run(
+                ["claude", "-p", prompt],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() if result.stderr else f"Process exited with code {result.returncode}"
+                return self.send_json(200, {"summary": None, "error": error_msg})
+
+            self.send_json(200, {"summary": result.stdout.strip()})
+        except FileNotFoundError:
+            self.send_json(200, {"summary": None, "error": "claude CLI not found on PATH."})
+        except subprocess.TimeoutExpired:
+            self.send_json(200, {"summary": None, "error": "Summary generation timed out after 120 seconds."})
+        except Exception as e:
+            self.send_json(200, {"summary": None, "error": f"Failed to generate summary: {e}"})
 
     # -- Static files -----------------------------------------------------
 

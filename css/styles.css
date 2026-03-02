@@ -669,6 +669,17 @@ body {
     border-color: rgba(255, 68, 68, 0.5);
 }
 
+.dp-action-report {
+    color: #c084fc;
+    background-color: rgba(168, 85, 247, 0.1);
+    border-color: rgba(168, 85, 247, 0.3);
+}
+
+.dp-action-report:hover {
+    background-color: rgba(168, 85, 247, 0.2);
+    border-color: rgba(168, 85, 247, 0.5);
+}
+
 /* -- Delete confirmation modal -- */
 .dp-modal-overlay {
     position: fixed;

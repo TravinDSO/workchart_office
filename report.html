@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session Report — WorkChart Office</title>
+    <link rel="stylesheet" href="css/report.css">
+</head>
+<body>
+    <header id="report-header">
+        <h1 id="report-title">Session Report</h1>
+        <a href="/" class="back-link">Back to WorkChart Office</a>
+    </header>
+
+    <main id="report-main">
+        <aside id="left-panel">
+            <section id="session-info" class="panel-section">
+                <h2 class="section-title">Session Info</h2>
+                <div id="session-info-fields" class="field-list">
+                    <div class="loading-placeholder">Loading...</div>
+                </div>
+            </section>
+
+            <section id="agent-catalog" class="panel-section">
+                <h2 class="section-title">Agent Catalog</h2>
+                <div id="agent-catalog-list">
+                    <div class="loading-placeholder">Loading...</div>
+                </div>
+            </section>
+        </aside>
+
+        <div id="right-panel">
+            <section id="executive-summary" class="report-section">
+                <h2 class="section-title">Executive Summary</h2>
+                <div id="summary-content">
+                    <div class="loading-placeholder summary-loading">
+                        <div class="loading-dots">
+                            <span></span><span></span><span></span>
+                        </div>
+                        Generating summary...
+                    </div>
+                </div>
+            </section>
+
+            <section id="timeline-section" class="report-section">
+                <h2 class="section-title">Timeline</h2>
+                <div id="timeline-content">
+                    <div class="loading-placeholder">Loading...</div>
+                </div>
+            </section>
+
+            <section id="comparison-section" class="report-section">
+                <h2 class="section-title">Human vs AI Comparison</h2>
+                <div id="comparison-content">
+                    <div class="loading-placeholder">Loading...</div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script type="module" src="js/report.js"></script>
+</body>
+</html>

@@ -34,7 +34,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -200,6 +200,9 @@ const server = http.createServer((req, res) => {
         if (url.pathname === '/api/subagents') {
             return handleListSubAgents(req, res, url);
         }
+        if (url.pathname === '/api/session-transcript') {
+            return handleSessionTranscript(req, res, url);
+        }
 
         // Serve static files
         return handleStaticFile(req, res, url);
@@ -213,6 +216,9 @@ const server = http.createServer((req, res) => {
             }
             if (url.pathname === '/api/delete-session') {
                 return handleDeleteSession(req, res, body);
+            }
+            if (url.pathname === '/api/generate-summary') {
+                return handleGenerateSummary(req, res, body);
             }
             sendJson(res, 404, { error: 'Not found.' });
         });
@@ -410,6 +416,98 @@ function handleListSubAgents(req, res, url) {
 }
 
 // ---------------------------------------------------------------------------
+// API: GET /api/session-transcript?project=<name>&session=<id>
+// ---------------------------------------------------------------------------
+
+function handleSessionTranscript(req, res, url) {
+    const projectName = url.searchParams.get('project');
+    const sessionId = url.searchParams.get('session');
+
+    if (!projectName) {
+        return sendJson(res, 400, { error: "Missing 'project' parameter." });
+    }
+    if (!sessionId) {
+        return sendJson(res, 400, { error: "Missing 'session' parameter." });
+    }
+
+    const projDir = resolveProjectDir(projectName);
+    if (!projDir) {
+        return sendJson(res, 404, { error: 'Project not found.' });
+    }
+
+    const sanitized = path.basename(sessionId);
+    const jsonlPath = path.join(projDir, `${sanitized}.jsonl`);
+
+    // Read and parse the main JSONL file
+    let events;
+    try {
+        const raw = fs.readFileSync(jsonlPath, 'utf-8');
+        const lines = raw.split('\n').filter(l => l.trim().length > 0);
+        events = [];
+        for (const line of lines) {
+            try {
+                events.push(JSON.parse(line));
+            } catch {
+                // Skip malformed lines
+            }
+        }
+    } catch (err) {
+        if (err.code === 'ENOENT') {
+            return sendJson(res, 404, { error: 'Session file not found.' });
+        }
+        return sendJson(res, 500, { error: `Failed to read session file: ${err.message}` });
+    }
+
+    // Extract metadata from parsed records
+    const metadata = { slug: null, cwd: null, gitBranch: null, version: null, customTitle: null };
+    for (const record of events) {
+        if (record.slug && !metadata.slug) metadata.slug = record.slug;
+        if (record.cwd && !metadata.cwd) metadata.cwd = record.cwd;
+        if (record.gitBranch && !metadata.gitBranch) metadata.gitBranch = record.gitBranch;
+        if (record.gitRepoUrl && !metadata.gitBranch) metadata.gitBranch = record.gitRepoUrl;
+        if (record.version && !metadata.version) metadata.version = record.version;
+        if (record.model && !metadata.version) metadata.version = record.model;
+        if (record.type === 'custom-title' && record.customTitle) metadata.customTitle = record.customTitle;
+    }
+
+    // Read sub-agent transcript files
+    const subAgents = {};
+    const subagentsDir = path.join(projDir, sanitized, 'subagents');
+    try {
+        if (fs.existsSync(subagentsDir)) {
+            const entries = fs.readdirSync(subagentsDir, { withFileTypes: true });
+            for (const e of entries) {
+                if (!e.isFile() || !e.name.endsWith('.jsonl')) continue;
+
+                const match = e.name.match(/^agent-(.+)\.jsonl$/);
+                const agentId = match ? match[1] : e.name.replace('.jsonl', '');
+                const agentPath = path.join(subagentsDir, e.name);
+
+                try {
+                    const agentRaw = fs.readFileSync(agentPath, 'utf-8');
+                    const agentLines = agentRaw.split('\n').filter(l => l.trim().length > 0);
+                    const agentEvents = [];
+                    for (const line of agentLines) {
+                        try {
+                            agentEvents.push(JSON.parse(line));
+                        } catch {
+                            // Skip malformed lines
+                        }
+                    }
+                    subAgents[agentId] = agentEvents;
+                } catch {
+                    // Skip unreadable sub-agent files
+                }
+            }
+        }
+    } catch {
+        // Sub-agents directory not accessible — return empty
+    }
+
+    sendJson(res, 200, { metadata, events, subAgents });
+}
+
+// ---------------------------------------------------------------------------
 // POST body collection
 // ---------------------------------------------------------------------------
 
@@ -529,6 +627,58 @@ function handleDeleteSession(req, res, body) {
     sendJson(res, 200, {
         ok: true,
         deleted: { jsonl: deletedJsonl, directory: deletedDir },
+    });
+}
+
+// ---------------------------------------------------------------------------
+// API: POST /api/generate-summary
+// ---------------------------------------------------------------------------
+
+function handleGenerateSummary(req, res, body) {
+    const transcriptSummary = body.transcriptSummary;
+
+    if (!transcriptSummary || typeof transcriptSummary !== 'string') {
+        return sendJson(res, 400, { error: "Missing or invalid 'transcriptSummary' parameter." });
+    }
+
+    const prompt = 'You are analyzing a Claude Code session transcript. '
+        + 'Generate a concise executive summary (3-5 paragraphs) covering: '
+        + '1) What task was accomplished, '
+        + '2) Key decisions and approach taken, '
+        + '3) Tools and techniques used, '
+        + '4) Notable challenges or interesting solutions, '
+        + '5) Final outcome and any remaining work. '
+        + 'Here is the session transcript summary:\n\n'
+        + transcriptSummary;
+
+    const child = spawn('claude', ['-p', prompt], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 120000,
+        shell: process.platform === 'win32',
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => { stdout += data.toString(); });
+    child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    child.on('error', (err) => {
+        if (err.code === 'ENOENT') {
+            return sendJson(res, 200, { summary: null, error: 'Claude CLI not found. Ensure "claude" is installed and on PATH.' });
+        }
+        sendJson(res, 200, { summary: null, error: `Failed to run Claude CLI: ${err.message}` });
+    });
+
+    child.on('close', (code) => {
+        if (code === null) {
+            // Process was killed (timeout)
+            return sendJson(res, 200, { summary: null, error: 'Claude CLI timed out after 120 seconds.' });
+        }
+        if (code !== 0) {
+            return sendJson(res, 200, { summary: null, error: `Claude CLI exited with code ${code}: ${stderr.trim()}` });
+        }
+        sendJson(res, 200, { summary: stdout.trim() });
     });
 }
 
