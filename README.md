@@ -65,17 +65,17 @@ When the server is running but no active Claude Code sessions are found, a "No s
 
 Click any **Human** sprite to open the detail panel, then click **View Report** to open a full session report in a new tab. The report includes:
 
-- **Session Info** — Name, project, duration, branch, tool counts
-- **Agent Catalog** — Main agent and all sub-agents with tool breakdowns
-- **Executive Summary** — AI-generated overview (requires `claude` CLI on PATH; gracefully falls back if unavailable)
+- **Human vs AI Comparison** (top of page) — AI-powered estimate of how long a human would take the same task, with reasoning about workflow differences and a step-by-step breakdown. Falls back to a static per-tool estimate if the `claude` CLI is unavailable.
+- **Executive Summary** — AI-generated overview of what was accomplished, key decisions, and outcomes
 - **Timeline** — Chronological feed of all events, color-coded by type, click to expand
-- **Human vs AI Comparison** — Estimated human time per tool category, speed multiplier badge, and breakdown table
+- **Session Info** (sidebar) — Name, project, duration, branch, tool counts
+- **Agent Catalog** (sidebar) — Main agent and all sub-agents with tool breakdowns
 
-The summary is cached in `sessionStorage` to avoid re-generating on page refresh.
+Both AI features (comparison estimate and executive summary) require the `claude` CLI on PATH and are requested in parallel. Results are cached in `sessionStorage` to avoid re-generating on page refresh. Use **Save Report** to export a self-contained HTML snapshot.
 
 ### Fixing "claude CLI not found on PATH"
 
-The executive summary requires that the `claude` command is on the PATH of the terminal running the server. If Claude Code is installed but the server can't find it, add the directory containing the `claude` binary to your PATH.
+The executive summary and AI-powered time estimate both require that the `claude` command is on the PATH of the terminal running the server. If Claude Code is installed but the server can't find it, add the directory containing the `claude` binary to your PATH.
 
 **macOS / Linux**
 
@@ -164,6 +164,7 @@ workchart_office/
 | `GET /api/subagents?project=<name>&session=<id>` | List sub-agent files for a session |
 | `GET /api/session-transcript?project=<name>&session=<id>` | Full transcript + sub-agent data for reports |
 | `POST /api/generate-summary` | AI-generated executive summary via `claude` CLI |
+| `POST /api/estimate-human-time` | AI-powered human time estimate via `claude` CLI |
 | `GET /*` | Serve static files |
 
 ## Requirements
