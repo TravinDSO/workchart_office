@@ -2562,6 +2562,697 @@ describe('Performance - Parsing', () => {
 
 
 // ========================================================================
+// REPORT MODULE (Inlined from js/report.js for testing)
+// ========================================================================
+
+const REPORT_TOOL_TIME_ESTIMATES = {
+    Read:        2,
+    Write:       15,
+    Edit:        10,
+    Grep:        2,
+    Glob:        1,
+    Bash:        5,
+    WebSearch:   8,
+    WebFetch:    10,
+    Agent:       20,
+    Task:        20,
+    AskUserQuestion: 1,
+    NotebookEdit: 10,
+};
+const REPORT_DEFAULT_TOOL_TIME = 3;
+const REPORT_THINKING_OVERHEAD = 0.15;
+const REPORT_CONTEXT_SWITCH_MIN = 2;
+
+function reportParseRecord(record) {
+    const events = [];
+
+    if (record.type === 'custom-title' && record.customTitle) {
+        events.push({ type: 'SESSION_META', customTitle: record.customTitle });
+        return events;
+    }
+
+    if (record.slug) {
+        events.push({ type: 'SESSION_META', slug: record.slug });
+    }
+
+    if (record.type === 'user') {
+        const content = record.message?.content;
+        if (Array.isArray(content)) {
+            const toolResult = content.find(b => b.type === 'tool_result');
+            if (toolResult) {
+                events.push({ type: 'TOOL_END', toolId: toolResult.tool_use_id });
+            }
+            const textBlock = content.find(b => b.type === 'text');
+            if (textBlock && textBlock.text?.trim()) {
+                events.push({ type: 'USER_PROMPT', text: textBlock.text });
+            }
+        } else if (typeof content === 'string' && content.trim()) {
+            events.push({ type: 'USER_PROMPT', text: content });
+        }
+    }
+
+    if (record.type === 'assistant') {
+        const content = record.message?.content;
+        if (Array.isArray(content)) {
+            for (const block of content) {
+                if (block.type === 'text' && block.text?.trim()) {
+                    events.push({ type: 'ASSISTANT_TEXT', text: block.text });
+                }
+            }
+            for (const block of content) {
+                if (block.type !== 'tool_use') continue;
+                if (block.name === 'AskUserQuestion') {
+                    events.push({ type: 'ASK_USER', toolId: block.id });
+                }
+                if (block.name === 'Task' || block.name === 'Agent') {
+                    events.push({
+                        type: 'SUBAGENT_SPAWN',
+                        agentId: block.input?.agentId || block.id,
+                        description: block.input?.description || block.input?.prompt || '',
+                        toolId: block.id,
+                    });
+                }
+                events.push({
+                    type: 'TOOL_START',
+                    toolName: block.name,
+                    toolId: block.id,
+                });
+            }
+        }
+    }
+
+    if (record.type === 'system' && record.subtype === 'turn_duration') {
+        events.push({ type: 'TURN_COMPLETE', durationMs: record.durationMs || 0 });
+    }
+
+    return events;
+}
+
+function reportProcessTranscript(transcript) {
+    const events = [];
+    const toolCounts = {};
+    const agentMap = new Map();
+    let turnCount = 0;
+    let userPromptCount = 0;
+    let firstEventTime = null;
+    let lastEventTime = null;
+
+    for (const record of transcript.events) {
+        const ts = record.timestamp ? new Date(record.timestamp).getTime() : null;
+        if (ts) {
+            if (!firstEventTime || ts < firstEventTime) firstEventTime = ts;
+            if (!lastEventTime || ts > lastEventTime) lastEventTime = ts;
+        }
+
+        const parsed = reportParseRecord(record);
+        for (const evt of parsed) {
+            evt.ts = ts;
+            evt.source = 'main';
+            events.push(evt);
+
+            if (evt.type === 'TOOL_START') {
+                toolCounts[evt.toolName] = (toolCounts[evt.toolName] || 0) + 1;
+            }
+            if (evt.type === 'TURN_COMPLETE') turnCount++;
+            if (evt.type === 'USER_PROMPT') userPromptCount++;
+            if (evt.type === 'SUBAGENT_SPAWN') {
+                agentMap.set(evt.agentId, {
+                    description: evt.description || '',
+                    tools: {},
+                    eventCount: 0,
+                });
+            }
+        }
+    }
+
+    if (transcript.subAgents) {
+        for (const [agentId, records] of Object.entries(transcript.subAgents)) {
+            if (!agentMap.has(agentId)) {
+                agentMap.set(agentId, { description: '', tools: {}, eventCount: 0 });
+            }
+            const agent = agentMap.get(agentId);
+
+            for (const record of records) {
+                const ts = record.timestamp ? new Date(record.timestamp).getTime() : null;
+                if (ts) {
+                    if (!firstEventTime || ts < firstEventTime) firstEventTime = ts;
+                    if (!lastEventTime || ts > lastEventTime) lastEventTime = ts;
+                }
+
+                const parsed = reportParseRecord(record);
+                for (const evt of parsed) {
+                    evt.ts = ts;
+                    evt.source = 'sub-agent';
+                    evt.agentId = agentId;
+                    events.push(evt);
+                    agent.eventCount++;
+
+                    if (evt.type === 'TOOL_START') {
+                        toolCounts[evt.toolName] = (toolCounts[evt.toolName] || 0) + 1;
+                        agent.tools[evt.toolName] = (agent.tools[evt.toolName] || 0) + 1;
+                    }
+                    if (evt.type === 'USER_PROMPT' && !agent.description && evt.text) {
+                        const line = evt.text.split('\n')[0].trim();
+                        agent.description = line.length > 80 ? line.substring(0, 78) + '..' : line;
+                    }
+                }
+            }
+        }
+    }
+
+    events.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    const durationMs = (firstEventTime && lastEventTime) ? lastEventTime - firstEventTime : 0;
+
+    return {
+        events, toolCounts, agentMap, turnCount, userPromptCount,
+        firstEventTime, lastEventTime, durationMs,
+    };
+}
+
+function reportEstimateHumanTime(processed) {
+    let totalMin = 0;
+    for (const [tool, count] of Object.entries(processed.toolCounts)) {
+        const perUse = REPORT_TOOL_TIME_ESTIMATES[tool] || REPORT_DEFAULT_TOOL_TIME;
+        totalMin += perUse * count;
+    }
+    totalMin *= (1 + REPORT_THINKING_OVERHEAD);
+    totalMin += processed.turnCount * REPORT_CONTEXT_SWITCH_MIN;
+    totalMin += processed.agentMap.size * 5;
+    return totalMin;
+}
+
+function reportFormatDuration(ms) {
+    if (!ms || ms <= 0) return '0s';
+    const sec = Math.floor(ms / 1000) % 60;
+    const min = Math.floor(ms / 60000) % 60;
+    const hr = Math.floor(ms / 3600000);
+
+    if (hr > 0) return `${hr}h ${min}m ${sec}s`;
+    if (min > 0) return `${min}m ${sec}s`;
+    return `${sec}s`;
+}
+
+function reportFormatTimestamp(ts) {
+    const d = new Date(ts);
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    return `${h}:${m}:${s}`;
+}
+
+function reportFormatMinutes(min) {
+    if (min < 60) return `${Math.round(min)}m`;
+    const hr = Math.floor(min / 60);
+    const rem = Math.round(min % 60);
+    return rem > 0 ? `${hr}h ${rem}m` : `${hr}h`;
+}
+
+function reportBuildTranscriptSummary(processed, transcript) {
+    const SESSION = 'test-session';
+    const lines = [];
+    const meta = transcript.metadata || {};
+
+    lines.push(`Session: ${meta.customTitle || meta.slug || SESSION}`);
+    if (meta.cwd) lines.push(`Working directory: ${meta.cwd}`);
+    if (meta.gitBranch) lines.push(`Git branch: ${meta.gitBranch}`);
+    lines.push(`Duration: ${reportFormatDuration(processed.durationMs)}`);
+    lines.push(`Turns: ${processed.turnCount}, User prompts: ${processed.userPromptCount}`);
+    lines.push(`Sub-agents: ${processed.agentMap.size}`);
+    lines.push('');
+
+    lines.push('Tool usage:');
+    for (const [tool, count] of Object.entries(processed.toolCounts).sort((a, b) => b[1] - a[1])) {
+        lines.push(`  ${tool}: ${count}`);
+    }
+    lines.push('');
+
+    lines.push('Key interactions:');
+    let interactionCount = 0;
+    for (const evt of processed.events) {
+        if (interactionCount >= 30) { lines.push('  ...'); break; }
+        if (evt.type === 'USER_PROMPT') {
+            const text = (evt.text || '').substring(0, 200);
+            lines.push(`  [USER] ${text}`);
+            interactionCount++;
+        } else if (evt.type === 'ASSISTANT_TEXT') {
+            const text = (evt.text || '').substring(0, 200);
+            lines.push(`  [AI] ${text}`);
+            interactionCount++;
+        }
+    }
+
+    let result = lines.join('\n');
+    if (result.length > 8000) {
+        result = result.substring(0, 7950) + '\n...(truncated)';
+    }
+    return result;
+}
+
+
+// -------------------------------------------------------------------
+// Report parseRecord Tests
+// -------------------------------------------------------------------
+
+describe('Report parseRecord', () => {
+
+    it('RPR.01: Parses user text message (array content) → USER_PROMPT', () => {
+        const record = {
+            type: 'user',
+            message: { role: 'user', content: [{ type: 'text', text: 'Fix the bug' }] }
+        };
+        const events = reportParseRecord(record);
+        const prompt = events.find(e => e.type === 'USER_PROMPT');
+        assertNotNull(prompt);
+        assertEqual(prompt.text, 'Fix the bug');
+    });
+
+    it('RPR.02: Parses user text message (string content) → USER_PROMPT', () => {
+        const record = {
+            type: 'user',
+            message: { role: 'user', content: 'Hello world' }
+        };
+        const events = reportParseRecord(record);
+        const prompt = events.find(e => e.type === 'USER_PROMPT');
+        assertNotNull(prompt);
+        assertEqual(prompt.text, 'Hello world');
+    });
+
+    it('RPR.03: Parses user tool_result → TOOL_END', () => {
+        const record = {
+            type: 'user',
+            message: {
+                role: 'user',
+                content: [{ type: 'tool_result', tool_use_id: 'toolu_abc123' }]
+            }
+        };
+        const events = reportParseRecord(record);
+        const toolEnd = events.find(e => e.type === 'TOOL_END');
+        assertNotNull(toolEnd);
+        assertEqual(toolEnd.toolId, 'toolu_abc123');
+    });
+
+    it('RPR.04: Parses assistant single tool_use → TOOL_START', () => {
+        const record = {
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'tool_use', id: 'toolu_read1', name: 'Read', input: {} }]
+            }
+        };
+        const events = reportParseRecord(record);
+        const toolStart = events.find(e => e.type === 'TOOL_START');
+        assertNotNull(toolStart);
+        assertEqual(toolStart.toolName, 'Read');
+        assertEqual(toolStart.toolId, 'toolu_read1');
+    });
+
+    it('RPR.05: Parses assistant multi tool_use → multiple TOOL_START events', () => {
+        const record = {
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_use', id: 'toolu_r1', name: 'Read', input: {} },
+                    { type: 'tool_use', id: 'toolu_g1', name: 'Grep', input: {} }
+                ]
+            }
+        };
+        const events = reportParseRecord(record);
+        const toolStarts = events.filter(e => e.type === 'TOOL_START');
+        assertEqual(toolStarts.length, 2);
+        assertEqual(toolStarts[0].toolName, 'Read');
+        assertEqual(toolStarts[1].toolName, 'Grep');
+    });
+
+    it('RPR.06: Parses assistant Agent tool → SUBAGENT_SPAWN + TOOL_START', () => {
+        const record = {
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [{
+                    type: 'tool_use', id: 'toolu_agent1', name: 'Agent',
+                    input: { agentId: 'a-001', description: 'Fix tests' }
+                }]
+            }
+        };
+        const events = reportParseRecord(record);
+        const spawn = events.find(e => e.type === 'SUBAGENT_SPAWN');
+        assertNotNull(spawn);
+        assertEqual(spawn.agentId, 'a-001');
+        assertEqual(spawn.description, 'Fix tests');
+        const toolStart = events.find(e => e.type === 'TOOL_START');
+        assertNotNull(toolStart);
+        assertEqual(toolStart.toolName, 'Agent');
+    });
+
+    it('RPR.07: Parses assistant AskUserQuestion → ASK_USER + TOOL_START', () => {
+        const record = {
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [{
+                    type: 'tool_use', id: 'toolu_ask1', name: 'AskUserQuestion', input: {}
+                }]
+            }
+        };
+        const events = reportParseRecord(record);
+        const ask = events.find(e => e.type === 'ASK_USER');
+        assertNotNull(ask);
+        assertEqual(ask.toolId, 'toolu_ask1');
+        const toolStart = events.find(e => e.type === 'TOOL_START');
+        assertNotNull(toolStart);
+        assertEqual(toolStart.toolName, 'AskUserQuestion');
+    });
+
+    it('RPR.08: Parses assistant text block → ASSISTANT_TEXT', () => {
+        const record = {
+            type: 'assistant',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'Here is my analysis.' }]
+            }
+        };
+        const events = reportParseRecord(record);
+        const text = events.find(e => e.type === 'ASSISTANT_TEXT');
+        assertNotNull(text);
+        assertEqual(text.text, 'Here is my analysis.');
+    });
+
+    it('RPR.09: Parses system turn_duration → TURN_COMPLETE', () => {
+        const record = { type: 'system', subtype: 'turn_duration', durationMs: 5432 };
+        const events = reportParseRecord(record);
+        const turn = events.find(e => e.type === 'TURN_COMPLETE');
+        assertNotNull(turn);
+        assertEqual(turn.durationMs, 5432);
+    });
+
+    it('RPR.10: Parses custom-title → SESSION_META', () => {
+        const record = { type: 'custom-title', customTitle: 'My Session' };
+        const events = reportParseRecord(record);
+        assertEqual(events.length, 1);
+        assertEqual(events[0].type, 'SESSION_META');
+        assertEqual(events[0].customTitle, 'My Session');
+    });
+
+    it('RPR.11: Returns empty array for unknown record type', () => {
+        const record = { type: 'unknown-type', data: 'something' };
+        const events = reportParseRecord(record);
+        assertEqual(events.length, 0);
+    });
+});
+
+// -------------------------------------------------------------------
+// Report processTranscript Tests
+// -------------------------------------------------------------------
+
+describe('Report processTranscript', () => {
+
+    it('RPT.01: Counts tools correctly', () => {
+        const transcript = {
+            events: [
+                { type: 'assistant', timestamp: '2026-03-01T10:00:00Z', message: { role: 'assistant', content: [
+                    { type: 'tool_use', id: 't1', name: 'Read', input: {} },
+                    { type: 'tool_use', id: 't2', name: 'Read', input: {} },
+                    { type: 'tool_use', id: 't3', name: 'Grep', input: {} }
+                ]}}
+            ]
+        };
+        const result = reportProcessTranscript(transcript);
+        assertEqual(result.toolCounts['Read'], 2);
+        assertEqual(result.toolCounts['Grep'], 1);
+    });
+
+    it('RPT.02: Counts turns and user prompts', () => {
+        const transcript = {
+            events: [
+                { type: 'user', timestamp: '2026-03-01T10:00:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Hello' }] }},
+                { type: 'system', subtype: 'turn_duration', timestamp: '2026-03-01T10:01:00Z', durationMs: 5000 },
+                { type: 'user', timestamp: '2026-03-01T10:02:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Next' }] }},
+                { type: 'system', subtype: 'turn_duration', timestamp: '2026-03-01T10:03:00Z', durationMs: 3000 }
+            ]
+        };
+        const result = reportProcessTranscript(transcript);
+        assertEqual(result.turnCount, 2);
+        assertEqual(result.userPromptCount, 2);
+    });
+
+    it('RPT.03: Calculates duration from first to last timestamp', () => {
+        const transcript = {
+            events: [
+                { type: 'user', timestamp: '2026-03-01T10:00:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Start' }] }},
+                { type: 'system', subtype: 'turn_duration', timestamp: '2026-03-01T10:05:00Z', durationMs: 1000 }
+            ]
+        };
+        const result = reportProcessTranscript(transcript);
+        assertEqual(result.durationMs, 5 * 60 * 1000); // 5 minutes
+    });
+
+    it('RPT.04: Populates agentMap from SUBAGENT_SPAWN events', () => {
+        const transcript = {
+            events: [
+                { type: 'assistant', timestamp: '2026-03-01T10:00:00Z', message: { role: 'assistant', content: [
+                    { type: 'tool_use', id: 'toolu_1', name: 'Agent', input: { agentId: 'agent-1', description: 'Fix tests' }}
+                ]}}
+            ]
+        };
+        const result = reportProcessTranscript(transcript);
+        assertTrue(result.agentMap.has('agent-1'));
+        assertEqual(result.agentMap.get('agent-1').description, 'Fix tests');
+    });
+
+    it('RPT.05: Processes sub-agent transcripts and counts their tools', () => {
+        const transcript = {
+            events: [
+                { type: 'assistant', timestamp: '2026-03-01T10:00:00Z', message: { role: 'assistant', content: [
+                    { type: 'tool_use', id: 'toolu_1', name: 'Agent', input: { agentId: 'agent-1', description: 'Fix' }}
+                ]}}
+            ],
+            subAgents: {
+                'agent-1': [
+                    { type: 'assistant', timestamp: '2026-03-01T10:01:00Z', message: { role: 'assistant', content: [
+                        { type: 'tool_use', id: 'sub_t1', name: 'Bash', input: {} }
+                    ]}}
+                ]
+            }
+        };
+        const result = reportProcessTranscript(transcript);
+        assertEqual(result.toolCounts['Bash'], 1);
+        assertEqual(result.agentMap.get('agent-1').tools['Bash'], 1);
+        assertEqual(result.agentMap.get('agent-1').eventCount, 1);
+    });
+
+    it('RPT.06: Events are sorted chronologically', () => {
+        const transcript = {
+            events: [
+                { type: 'system', subtype: 'turn_duration', timestamp: '2026-03-01T10:05:00Z', durationMs: 1000 },
+                { type: 'user', timestamp: '2026-03-01T10:00:00Z', message: { role: 'user', content: [{ type: 'text', text: 'First' }] }}
+            ]
+        };
+        const result = reportProcessTranscript(transcript);
+        assertTrue(result.events[0].ts <= result.events[result.events.length - 1].ts,
+            'Events should be sorted by timestamp');
+    });
+
+    it('RPT.07: Empty transcript returns zero counts', () => {
+        const transcript = { events: [] };
+        const result = reportProcessTranscript(transcript);
+        assertEqual(result.turnCount, 0);
+        assertEqual(result.userPromptCount, 0);
+        assertEqual(result.durationMs, 0);
+        assertEqual(Object.keys(result.toolCounts).length, 0);
+        assertEqual(result.agentMap.size, 0);
+    });
+
+    it('RPT.08: Sub-agent description extracted from first USER_PROMPT', () => {
+        const transcript = {
+            events: [],
+            subAgents: {
+                'agent-x': [
+                    { type: 'user', timestamp: '2026-03-01T10:00:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Please fix the auth module tests' }] }},
+                    { type: 'user', timestamp: '2026-03-01T10:01:00Z', message: { role: 'user', content: [{ type: 'text', text: 'Also update docs' }] }}
+                ]
+            }
+        };
+        const result = reportProcessTranscript(transcript);
+        assertEqual(result.agentMap.get('agent-x').description, 'Please fix the auth module tests');
+    });
+});
+
+// -------------------------------------------------------------------
+// Report estimateHumanTime Tests
+// -------------------------------------------------------------------
+
+describe('Report estimateHumanTime', () => {
+
+    it('RET.01: Known tools use TOOL_TIME_ESTIMATES values', () => {
+        const processed = {
+            toolCounts: { Read: 5 },
+            turnCount: 0,
+            agentMap: new Map()
+        };
+        // Read = 2 min each → 10 min base, × 1.15 = 11.5
+        const result = reportEstimateHumanTime(processed);
+        assertEqual(result, 10 * 1.15);
+    });
+
+    it('RET.02: Unknown tools use DEFAULT_TOOL_TIME (3 min)', () => {
+        const processed = {
+            toolCounts: { CustomUnknownTool: 4 },
+            turnCount: 0,
+            agentMap: new Map()
+        };
+        // 4 × 3 = 12 min base, × 1.15 = 13.8
+        const result = reportEstimateHumanTime(processed);
+        assertEqual(result, 12 * 1.15);
+    });
+
+    it('RET.03: Includes 15% thinking overhead', () => {
+        const processed = {
+            toolCounts: { Glob: 10 },
+            turnCount: 0,
+            agentMap: new Map()
+        };
+        // Glob = 1 min each → 10 min base, × 1.15 = 11.5
+        const result = reportEstimateHumanTime(processed);
+        assertEqual(result, 10 * 1.15);
+    });
+
+    it('RET.04: Includes context switch time (2 min per turn)', () => {
+        const processed = {
+            toolCounts: { Read: 1 },
+            turnCount: 3,
+            agentMap: new Map()
+        };
+        // Read: 2 min × 1.15 = 2.3, + 3 turns × 2 min = 6 → total 8.3
+        const result = reportEstimateHumanTime(processed);
+        assertEqual(result, 2 * 1.15 + 3 * 2);
+    });
+
+    it('RET.05: Includes sub-agent coordination overhead (5 min each)', () => {
+        const agentMap = new Map();
+        agentMap.set('a1', { tools: {}, eventCount: 0 });
+        agentMap.set('a2', { tools: {}, eventCount: 0 });
+        const processed = {
+            toolCounts: {},
+            turnCount: 0,
+            agentMap: agentMap
+        };
+        // No tool time, 0 turns, 2 agents × 5 min = 10
+        const result = reportEstimateHumanTime(processed);
+        assertEqual(result, 0 * 1.15 + 0 + 10);
+    });
+});
+
+// -------------------------------------------------------------------
+// Report Formatting Utilities Tests
+// -------------------------------------------------------------------
+
+describe('Report Formatting Utilities', () => {
+
+    it('RFU.01: formatDuration 0ms → "0s"', () => {
+        assertEqual(reportFormatDuration(0), '0s');
+    });
+
+    it('RFU.02: formatDuration seconds only', () => {
+        assertEqual(reportFormatDuration(45000), '45s');
+    });
+
+    it('RFU.03: formatDuration minutes and seconds', () => {
+        assertEqual(reportFormatDuration(135000), '2m 15s');
+    });
+
+    it('RFU.04: formatDuration hours, minutes, seconds', () => {
+        assertEqual(reportFormatDuration(8130000), '2h 15m 30s');
+    });
+
+    it('RFU.05: formatMinutes under 60 → "Xm"', () => {
+        assertEqual(reportFormatMinutes(45), '45m');
+    });
+
+    it('RFU.06: formatMinutes over 60 → "Xh Ym"', () => {
+        assertEqual(reportFormatMinutes(135), '2h 15m');
+    });
+
+    it('RFU.07: formatMinutes exact hours → "Xh"', () => {
+        assertEqual(reportFormatMinutes(120), '2h');
+    });
+
+    it('RFU.08: formatTimestamp formats HH:MM:SS with zero-padding', () => {
+        // Create a timestamp for a known local time
+        const d = new Date(2026, 2, 1, 9, 5, 3); // March 1, 2026 09:05:03
+        const result = reportFormatTimestamp(d.getTime());
+        assertEqual(result, '09:05:03');
+    });
+});
+
+// -------------------------------------------------------------------
+// Report buildTranscriptSummary Tests
+// -------------------------------------------------------------------
+
+describe('Report buildTranscriptSummary', () => {
+
+    it('RBS.01: Includes session name from metadata', () => {
+        const processed = {
+            events: [], toolCounts: {}, agentMap: new Map(),
+            turnCount: 0, userPromptCount: 0, durationMs: 0,
+        };
+        const transcript = { metadata: { customTitle: 'My Test Session' } };
+        const summary = reportBuildTranscriptSummary(processed, transcript);
+        assertTrue(summary.includes('Session: My Test Session'));
+    });
+
+    it('RBS.02: Includes tool usage counts', () => {
+        const processed = {
+            events: [], toolCounts: { Read: 5, Edit: 3 }, agentMap: new Map(),
+            turnCount: 1, userPromptCount: 1, durationMs: 60000,
+        };
+        const transcript = { metadata: { slug: 'test' } };
+        const summary = reportBuildTranscriptSummary(processed, transcript);
+        assertTrue(summary.includes('Read: 5'), 'Should include Read count');
+        assertTrue(summary.includes('Edit: 3'), 'Should include Edit count');
+    });
+
+    it('RBS.03: Includes key interactions (USER/AI)', () => {
+        const processed = {
+            events: [
+                { type: 'USER_PROMPT', text: 'Fix the bug please' },
+                { type: 'ASSISTANT_TEXT', text: 'I will fix it now.' }
+            ],
+            toolCounts: {}, agentMap: new Map(),
+            turnCount: 1, userPromptCount: 1, durationMs: 60000,
+        };
+        const transcript = { metadata: {} };
+        const summary = reportBuildTranscriptSummary(processed, transcript);
+        assertTrue(summary.includes('[USER] Fix the bug please'));
+        assertTrue(summary.includes('[AI] I will fix it now.'));
+    });
+
+    it('RBS.04: Truncates at ~8000 chars', () => {
+        // Generate enough content to exceed 8000 chars:
+        // 30 interactions × ~207 chars ≈ 6210 + header ≈ 6400
+        // Add many long tool names to push tool section over the limit
+        const longEvents = [];
+        for (let i = 0; i < 100; i++) {
+            longEvents.push({ type: 'USER_PROMPT', text: 'A'.repeat(200) });
+            longEvents.push({ type: 'ASSISTANT_TEXT', text: 'B'.repeat(200) });
+        }
+        const toolCounts = {};
+        for (let i = 0; i < 200; i++) {
+            toolCounts['LongToolName_' + 'X'.repeat(30) + '_' + i] = 999;
+        }
+        const processed = {
+            events: longEvents, toolCounts, agentMap: new Map(),
+            turnCount: 1, userPromptCount: 100, durationMs: 60000,
+        };
+        const transcript = { metadata: {} };
+        const summary = reportBuildTranscriptSummary(processed, transcript);
+        assertTrue(summary.length <= 8000, `Summary should be ≤8000 chars, got ${summary.length}`);
+        assertTrue(summary.includes('...(truncated)'));
+    });
+});
+
+
+// ========================================================================
 // VISUAL TESTS
 // ========================================================================
 
