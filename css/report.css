@@ -35,6 +35,35 @@ html, body {
     letter-spacing: 0.02em;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.save-btn {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.8rem;
+    color: #00ff88;
+    background: transparent;
+    padding: 6px 14px;
+    border: 1px solid rgba(0, 255, 136, 0.35);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.save-btn:hover {
+    background-color: rgba(0, 255, 136, 0.1);
+    border-color: rgba(0, 255, 136, 0.6);
+    box-shadow: 0 0 8px rgba(0, 255, 136, 0.15);
+}
+
+.save-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
 .back-link {
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 0.8rem;
@@ -73,6 +102,8 @@ html, body {
 /* ---------- Right Panel ---------- */
 #right-panel {
     overflow-y: auto;
+    overflow-x: hidden;
+    min-width: 0;
     padding: 24px 32px;
     display: flex;
     flex-direction: column;
@@ -222,7 +253,8 @@ html, body {
 
 .agent-card-stats {
     display: flex;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 0.7rem;
     color: #6b7b8d;
@@ -495,6 +527,7 @@ html, body {
 /* Breakdown table */
 .breakdown-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 0.75rem;
@@ -515,6 +548,8 @@ html, body {
     padding: 6px 12px;
     color: #aaa;
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .breakdown-table tr:hover td {
@@ -528,6 +563,50 @@ html, body {
 .breakdown-table .time-col {
     text-align: right;
     color: #e0e0e0;
+}
+
+/* ---------- Estimate Source Badges ---------- */
+.estimate-source {
+    display: inline-block;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+
+.estimate-source.ai-powered {
+    color: #00ff88;
+    background: rgba(0, 255, 136, 0.12);
+    border: 1px solid rgba(0, 255, 136, 0.3);
+}
+
+.estimate-source.static-estimate {
+    color: #ffaa00;
+    background: rgba(255, 170, 0, 0.12);
+    border: 1px solid rgba(255, 170, 0, 0.3);
+}
+
+/* ---------- Estimate Reasoning ---------- */
+.estimate-reasoning {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: #bbb;
+    border-left: 3px solid #00ff88;
+    background: rgba(0, 255, 136, 0.04);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border-radius: 0 4px 4px 0;
+}
+
+/* ---------- Breakdown Description Column ---------- */
+.breakdown-table .desc-col {
+    color: #6b7b8d;
+    font-size: 0.7rem;
 }
 
 /* ---------- Error State ---------- */
@@ -601,6 +680,14 @@ html, body {
 
     #right-panel {
         padding: 16px 12px;
+    }
+}
+
+/* ---------- Print ---------- */
+@media print {
+    .no-export,
+    #report-header .header-actions {
+        display: none !important;
     }
 }
 

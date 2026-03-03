@@ -47,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
     loadReport();
+
+    document.getElementById('save-report-btn').addEventListener('click', saveReport);
 });
 
 async function loadReport() {
@@ -57,9 +59,10 @@ async function loadReport() {
         renderSessionInfo(processed, transcript.metadata);
         renderAgentCatalog(processed);
         renderTimeline(processed);
-        renderHumanComparison(processed);
 
-        // Request AI summary in parallel (non-blocking)
+        // Show loading state for comparison, then fire both AI requests in parallel
+        renderComparisonLoading();
+        requestHumanTimeEstimate(processed, transcript);
         requestSummary(processed, transcript);
     } catch (err) {
         showError(`Failed to load transcript: ${err.message}`);
@@ -553,9 +556,130 @@ function getEventDetail(evt) {
 // Render: Human vs AI Comparison
 // ---------------------------------------------------------------------------
 
-function renderHumanComparison(processed) {
+function renderComparisonLoading() {
+    const container = document.getElementById('comparison-content');
+    container.innerHTML = `<div class="loading-placeholder summary-loading">
+        <div class="loading-dots"><span></span><span></span><span></span></div>
+        Estimating human time...
+    </div>`;
+}
+
+async function requestHumanTimeEstimate(processed, transcript) {
+    const container = document.getElementById('comparison-content');
+    const cacheKey = `report-estimate-${PROJECT}-${SESSION}`;
+
+    // Check sessionStorage cache
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+        try {
+            const estimate = JSON.parse(cached);
+            renderAIComparison(processed, estimate);
+            return;
+        } catch { /* fall through */ }
+    }
+
+    try {
+        const transcriptSummary = buildTranscriptSummary(processed, transcript);
+        const aiDurationMinutes = processed.durationMs / 60000;
+
+        const res = await fetch('/api/estimate-human-time', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcriptSummary, aiDurationMinutes }),
+        });
+
+        const data = await res.json();
+
+        if (data.estimate && data.estimate.totalMinutes) {
+            sessionStorage.setItem(cacheKey, JSON.stringify(data.estimate));
+            renderAIComparison(processed, data.estimate);
+        } else {
+            renderHumanComparison(processed, true);
+        }
+    } catch {
+        renderHumanComparison(processed, true);
+    }
+}
+
+function renderAIComparison(processed, estimate) {
     const container = document.getElementById('comparison-content');
     container.innerHTML = '';
+
+    const aiTimeMin = processed.durationMs / 60000;
+    const humanTimeMin = estimate.totalMinutes;
+
+    if (aiTimeMin < 0.1 || humanTimeMin < 1) {
+        container.innerHTML = '<div class="loading-placeholder">Not enough data for comparison.</div>';
+        return;
+    }
+
+    // Source badge
+    const sourceBadge = document.createElement('div');
+    sourceBadge.className = 'estimate-source ai-powered';
+    sourceBadge.textContent = 'AI-powered estimate';
+    container.appendChild(sourceBadge);
+
+    const multiplier = humanTimeMin / Math.max(aiTimeMin, 0.1);
+
+    // Speed badge
+    const badgeEl = document.createElement('div');
+    badgeEl.className = 'speed-badge';
+    badgeEl.innerHTML = `<span class="multiplier">~${Math.round(multiplier)}x</span><span class="label">faster than manual</span>`;
+    container.appendChild(badgeEl);
+
+    // Comparison bars
+    const barsEl = document.createElement('div');
+    barsEl.className = 'comparison-bars';
+    const maxTime = Math.max(aiTimeMin, humanTimeMin);
+    barsEl.appendChild(createComparisonBar('AI Time', aiTimeMin, maxTime, 'ai'));
+    barsEl.appendChild(createComparisonBar('Est. Human Time', humanTimeMin, maxTime, 'human'));
+    container.appendChild(barsEl);
+
+    // Reasoning paragraph
+    if (estimate.reasoning) {
+        const reasoning = document.createElement('p');
+        reasoning.className = 'estimate-reasoning';
+        reasoning.textContent = estimate.reasoning;
+        container.appendChild(reasoning);
+    }
+
+    // Workflow breakdown table
+    if (estimate.breakdown && estimate.breakdown.length > 0) {
+        const table = document.createElement('table');
+        table.className = 'breakdown-table';
+
+        const thead = document.createElement('thead');
+        thead.innerHTML = '<tr><th>Workflow Step</th><th class="time-col">Est. Time</th><th>Description</th></tr>';
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        for (const step of estimate.breakdown) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${step.category}</td><td class="time-col">${formatMinutes(step.minutes)}</td><td class="desc-col">${step.description || ''}</td>`;
+            tbody.appendChild(tr);
+        }
+
+        // Total row
+        const trTotal = document.createElement('tr');
+        trTotal.innerHTML = `<td><strong>Total</strong></td><td class="time-col"><strong>${formatMinutes(humanTimeMin)}</strong></td><td class="desc-col"></td>`;
+        tbody.appendChild(trTotal);
+
+        table.appendChild(tbody);
+        container.appendChild(table);
+    }
+}
+
+function renderHumanComparison(processed, isFallback) {
+    const container = document.getElementById('comparison-content');
+    container.innerHTML = '';
+
+    // Source badge for fallback
+    if (isFallback) {
+        const sourceBadge = document.createElement('div');
+        sourceBadge.className = 'estimate-source static-estimate';
+        sourceBadge.textContent = 'Static estimate (approximate)';
+        container.appendChild(sourceBadge);
+    }
 
     const aiTimeMs = processed.durationMs;
     const humanTimeMin = estimateHumanTime(processed);
@@ -707,5 +831,79 @@ function showError(msg) {
     const main = document.getElementById('report-main');
     if (main) {
         main.innerHTML = `<div style="grid-column: 1 / -1; padding: 40px;"><div class="error-state">${msg}</div></div>`;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Save Report as self-contained HTML
+// ---------------------------------------------------------------------------
+
+async function saveReport() {
+    const btn = document.getElementById('save-report-btn');
+
+    // Warn if summary is still loading
+    if (document.querySelector('.summary-loading')) {
+        if (!confirm('The AI summary is still loading. Save without it?')) return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+        // Fetch CSS to inline
+        const cssText = await fetch('css/report.css').then(r => r.text());
+
+        // Clone the document
+        const clone = document.documentElement.cloneNode(true);
+
+        // Remove no-export elements (save button, back link)
+        clone.querySelectorAll('.no-export').forEach(el => el.remove());
+
+        // Remove all script tags
+        clone.querySelectorAll('script').forEach(el => el.remove());
+
+        // Replace stylesheet link with inline style
+        const linkEl = clone.querySelector('link[rel="stylesheet"]');
+        if (linkEl) {
+            const styleEl = document.createElement('style');
+            styleEl.textContent = cssText;
+            linkEl.replaceWith(styleEl);
+        }
+
+        // Add minimal inline JS for timeline expand/collapse
+        const script = document.createElement('script');
+        script.textContent = `document.addEventListener('click', function(e) {
+    var row = e.target.closest('.timeline-event');
+    if (row) row.classList.toggle('expanded');
+});`;
+        clone.querySelector('body').appendChild(script);
+
+        // Add export footer
+        const footer = document.createElement('footer');
+        footer.style.cssText = 'text-align:center;padding:16px;font-size:0.7rem;color:#555577;font-family:Consolas,Monaco,monospace;border-top:1px solid #2a2a4a;margin-top:24px;';
+        footer.textContent = `Exported from WorkChart Office on ${new Date().toLocaleDateString()}`;
+        clone.querySelector('body').appendChild(footer);
+
+        // Build HTML string and trigger download
+        const html = '<!DOCTYPE html>\n' + clone.outerHTML;
+        const blob = new Blob([html], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        const sessionName = (document.getElementById('report-title').textContent || 'session')
+            .replace(/^Session Report\s*[—–-]\s*/, '')
+            .replace(/[^a-zA-Z0-9_-]/g, '_')
+            .substring(0, 60);
+        const dateStr = new Date().toISOString().slice(0, 10);
+        a.download = `report-${sessionName}-${dateStr}.html`;
+        a.href = url;
+        a.click();
+
+        URL.revokeObjectURL(url);
+    } catch (err) {
+        alert('Failed to save report: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save Report';
     }
 }

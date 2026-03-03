@@ -9,7 +9,10 @@
 <body>
     <header id="report-header">
         <h1 id="report-title">Session Report</h1>
-        <a href="/" class="back-link">Back to WorkChart Office</a>
+        <div class="header-actions">
+            <button id="save-report-btn" class="save-btn no-export">Save Report</button>
+            <a href="/" class="back-link no-export">Back to WorkChart Office</a>
+        </div>
     </header>
 
     <main id="report-main">
@@ -30,6 +33,13 @@
         </aside>
 
         <div id="right-panel">
+            <section id="comparison-section" class="report-section">
+                <h2 class="section-title">Human vs AI Comparison</h2>
+                <div id="comparison-content">
+                    <div class="loading-placeholder">Loading...</div>
+                </div>
+            </section>
+
             <section id="executive-summary" class="report-section">
                 <h2 class="section-title">Executive Summary</h2>
                 <div id="summary-content">
@@ -45,13 +55,6 @@
             <section id="timeline-section" class="report-section">
                 <h2 class="section-title">Timeline</h2>
                 <div id="timeline-content">
-                    <div class="loading-placeholder">Loading...</div>
-                </div>
-            </section>
-
-            <section id="comparison-section" class="report-section">
-                <h2 class="section-title">Human vs AI Comparison</h2>
-                <div id="comparison-content">
                     <div class="loading-placeholder">Loading...</div>
                 </div>
             </section>

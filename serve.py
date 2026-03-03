@@ -426,6 +426,8 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
             return self.handle_delete_session(body)
         if path == "/api/generate-summary":
             return self.handle_generate_summary(body)
+        if path == "/api/estimate-human-time":
+            return self.handle_estimate_human_time(body)
 
         self.send_json(404, {"error": "Not found."})
 
@@ -524,8 +526,18 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
         )
 
         try:
+            # On Windows, 'claude' is a .cmd wrapper installed by npm.
+            # subprocess.run with a list can't resolve .cmd files.
+            # Use shutil.which() to find the full path to the executable.
+            claude_bin = shutil.which("claude")
+            if not claude_bin:
+                return self.send_json(200, {"summary": None, "error": "claude CLI not found on PATH."})
+
+            # Pass prompt via stdin to avoid Windows command-line escaping
+            # issues (newlines, quotes, backslashes in transcript content).
             result = subprocess.run(
-                ["claude", "-p", prompt],
+                [claude_bin, "-p"],
+                input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -541,6 +553,73 @@ class WorkChartHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(200, {"summary": None, "error": "Summary generation timed out after 120 seconds."})
         except Exception as e:
             self.send_json(200, {"summary": None, "error": f"Failed to generate summary: {e}"})
+
+    # -- API: POST /api/estimate-human-time --------------------------------
+
+    def handle_estimate_human_time(self, body: dict):
+        transcript_summary = body.get("transcriptSummary")
+        ai_duration_minutes = body.get("aiDurationMinutes")
+
+        if not transcript_summary or not isinstance(transcript_summary, str):
+            return self.send_json(400, {"error": "Missing or invalid 'transcriptSummary' parameter."})
+        if ai_duration_minutes is None:
+            return self.send_json(400, {"error": "Missing 'aiDurationMinutes' parameter."})
+
+        prompt = (
+            "You are estimating how long a skilled human developer would take to accomplish "
+            "the same task that an AI coding assistant just completed. "
+            "Think about how a HUMAN would approach this differently — they wouldn't make "
+            "40 Read calls, they'd open files in an editor. They wouldn't write a Python script "
+            "to generate a PowerPoint, they'd just open PowerPoint. Think about the actual human "
+            "workflow: research, planning, writing, testing, debugging, context-switching.\n\n"
+            f"The AI completed this task in {float(ai_duration_minutes):.1f} minutes.\n\n"
+            "Here is a summary of the session:\n\n"
+            + transcript_summary + "\n\n"
+            "Return ONLY valid JSON (no markdown, no explanation) in this exact format:\n"
+            '{"totalMinutes": <number>, "reasoning": "<2-3 sentences about how the human '
+            'approach would differ>", "breakdown": [{"category": "<human workflow step>", '
+            '"minutes": <number>, "description": "<brief description>"}]}\n\n'
+            "Use human workflow categories like 'Research & planning', 'Writing code', "
+            "'Manual testing', 'Debugging', 'Documentation', 'Setup & configuration', "
+            "'Code review & iteration' — NOT AI tool names."
+        )
+
+        try:
+            claude_bin = shutil.which("claude")
+            if not claude_bin:
+                return self.send_json(200, {"estimate": None, "error": "claude CLI not found on PATH."})
+
+            result = subprocess.run(
+                [claude_bin, "-p"],
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode != 0:
+                error_msg = result.stderr.strip() if result.stderr else f"Process exited with code {result.returncode}"
+                return self.send_json(200, {"estimate": None, "error": error_msg})
+
+            # Strip markdown code fences if present
+            output = result.stdout.strip()
+            if output.startswith("```"):
+                lines = output.split("\n")
+                # Remove first line (```json or ```) and last line (```)
+                lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                output = "\n".join(lines).strip()
+
+            estimate = json.loads(output)
+            self.send_json(200, {"estimate": estimate})
+        except json.JSONDecodeError:
+            self.send_json(200, {"estimate": None, "error": "Failed to parse Claude response as JSON."})
+        except FileNotFoundError:
+            self.send_json(200, {"estimate": None, "error": "claude CLI not found on PATH."})
+        except subprocess.TimeoutExpired:
+            self.send_json(200, {"estimate": None, "error": "Estimation timed out after 120 seconds."})
+        except Exception as e:
+            self.send_json(200, {"estimate": None, "error": f"Failed to generate estimate: {e}"})
 
     # -- Static files -----------------------------------------------------
 

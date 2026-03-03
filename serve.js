@@ -220,6 +220,9 @@ const server = http.createServer((req, res) => {
             if (url.pathname === '/api/generate-summary') {
                 return handleGenerateSummary(req, res, body);
             }
+            if (url.pathname === '/api/estimate-human-time') {
+                return handleEstimateHumanTime(req, res, body);
+            }
             sendJson(res, 404, { error: 'Not found.' });
         });
     }
@@ -679,6 +682,88 @@ function handleGenerateSummary(req, res, body) {
             return sendJson(res, 200, { summary: null, error: `Claude CLI exited with code ${code}: ${stderr.trim()}` });
         }
         sendJson(res, 200, { summary: stdout.trim() });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// API: POST /api/estimate-human-time
+// ---------------------------------------------------------------------------
+
+function handleEstimateHumanTime(req, res, body) {
+    const transcriptSummary = body.transcriptSummary;
+    const aiDurationMinutes = body.aiDurationMinutes;
+
+    if (!transcriptSummary || typeof transcriptSummary !== 'string') {
+        return sendJson(res, 400, { error: "Missing or invalid 'transcriptSummary' parameter." });
+    }
+    if (aiDurationMinutes == null) {
+        return sendJson(res, 400, { error: "Missing 'aiDurationMinutes' parameter." });
+    }
+
+    const prompt = 'You are estimating how long a skilled human developer would take to accomplish '
+        + 'the same task that an AI coding assistant just completed. '
+        + 'Think about how a HUMAN would approach this differently — they wouldn\'t make '
+        + '40 Read calls, they\'d open files in an editor. They wouldn\'t write a Python script '
+        + 'to generate a PowerPoint, they\'d just open PowerPoint. Think about the actual human '
+        + 'workflow: research, planning, writing, testing, debugging, context-switching.\n\n'
+        + `The AI completed this task in ${Number(aiDurationMinutes).toFixed(1)} minutes.\n\n`
+        + 'Here is a summary of the session:\n\n'
+        + transcriptSummary + '\n\n'
+        + 'Return ONLY valid JSON (no markdown, no explanation) in this exact format:\n'
+        + '{"totalMinutes": <number>, "reasoning": "<2-3 sentences about how the human '
+        + 'approach would differ>", "breakdown": [{"category": "<human workflow step>", '
+        + '"minutes": <number>, "description": "<brief description>"}]}\n\n'
+        + 'Use human workflow categories like \'Research & planning\', \'Writing code\', '
+        + '\'Manual testing\', \'Debugging\', \'Documentation\', \'Setup & configuration\', '
+        + '\'Code review & iteration\' — NOT AI tool names.';
+
+    const child = spawn('claude', ['-p'], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 120000,
+        shell: process.platform === 'win32',
+    });
+
+    child.stdin.write(prompt);
+    child.stdin.end();
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => { stdout += data.toString(); });
+    child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    child.on('error', (err) => {
+        if (err.code === 'ENOENT') {
+            return sendJson(res, 200, { estimate: null, error: 'Claude CLI not found. Ensure "claude" is installed and on PATH.' });
+        }
+        sendJson(res, 200, { estimate: null, error: `Failed to run Claude CLI: ${err.message}` });
+    });
+
+    child.on('close', (code) => {
+        if (code === null) {
+            return sendJson(res, 200, { estimate: null, error: 'Estimation timed out after 120 seconds.' });
+        }
+        if (code !== 0) {
+            return sendJson(res, 200, { estimate: null, error: `Claude CLI exited with code ${code}: ${stderr.trim()}` });
+        }
+
+        // Strip markdown code fences if present
+        let output = stdout.trim();
+        if (output.startsWith('```')) {
+            const lines = output.split('\n');
+            lines.shift(); // Remove first line (```json or ```)
+            if (lines.length > 0 && lines[lines.length - 1].trim() === '```') {
+                lines.pop();
+            }
+            output = lines.join('\n').trim();
+        }
+
+        try {
+            const estimate = JSON.parse(output);
+            sendJson(res, 200, { estimate });
+        } catch {
+            sendJson(res, 200, { estimate: null, error: 'Failed to parse Claude response as JSON.' });
+        }
     });
 }
 
